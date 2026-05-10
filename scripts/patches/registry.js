@@ -22,6 +22,7 @@ const {
 const {
   applyLinuxAvatarOverlayMousePassthroughPatch,
   applyBrowserUseNodeReplApprovalPatch,
+  applyLinuxBrowserUseIabVisibleOnCreatePatch,
   applyLinuxChromeExtensionStatusPatch,
   applyLinuxExplicitIpcQuitPatch,
   applyLinuxExplicitQuitPromptBypassPatch,
@@ -151,6 +152,11 @@ const MAIN_BUNDLE_PATCHES = [
     name: "browser-use-node-repl-approval",
     ciPolicy: OPTIONAL,
     apply: (source) => applyBrowserUseNodeReplApprovalPatch(source),
+  },
+  {
+    name: "linux-browser-use-iab-visible-on-create",
+    ciPolicy: OPTIONAL,
+    apply: (source) => applyLinuxBrowserUseIabVisibleOnCreatePatch(source),
   },
   {
     name: "linux-chrome-extension-status",

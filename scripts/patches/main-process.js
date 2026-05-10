@@ -783,6 +783,44 @@ function applyBrowserUseNodeReplApprovalPatch(currentSource) {
   return currentSource.replace(needle, approvalPatch);
 }
 
+function applyLinuxBrowserUseIabVisibleOnCreatePatch(currentSource) {
+  const marker = "codexLinuxBrowserUseAutoVisible";
+  if (currentSource.includes(marker)) {
+    return currentSource;
+  }
+
+  const visibilityExpr = (hostExpr, sessionExpr) =>
+    `(()=>{try{${hostExpr}.setBrowserVisibleForBrowserUse(!0,${sessionExpr}.turnId)}catch(__codexLinuxErr){console.warn("${marker}",__codexLinuxErr?.message??__codexLinuxErr)}})()`;
+  const createTabRegex =
+    /if\(([A-Za-z_$][\w$]*)!=null\)return await this\.navigateTabToInitialPage\(\1\),this\.serializeTab\(\1\);let ([A-Za-z_$][\w$]*)=this\.getRequiredBrowserHost\(([A-Za-z_$][\w$]*)\);\2\.setBrowserUseActive\(!0,\3\.turnId\);let ([A-Za-z_$][\w$]*)=await \2\.openPageForBrowserUse\(\{startingUrl:this\.initialPageUrl,turnId:\3\.turnId\}\),([A-Za-z_$][\w$]*)=this\.updateTabForPage\(\4,\2\.routeKey\);return/;
+  const match = currentSource.match(createTabRegex);
+  if (match == null) {
+    if (
+      currentSource.includes("createTabForBrowserUse") &&
+      currentSource.includes("openPageForBrowserUse")
+    ) {
+      console.warn(
+        "WARN: Could not find Browser Use IAB tab creation point — skipping Linux IAB visibility patch",
+      );
+    }
+    return currentSource;
+  }
+
+  const [needle, tabVar, hostVar, sessionVar, pageVar, tabInfoVar] = match;
+  const activeTabVisibility = visibilityExpr(
+    `this.getRequiredBrowserHost(${sessionVar})`,
+    sessionVar,
+  );
+  const newTabVisibility = visibilityExpr(hostVar, sessionVar);
+  const replacement =
+    `if(${tabVar}!=null)return await this.navigateTabToInitialPage(${tabVar}),${activeTabVisibility},this.serializeTab(${tabVar});` +
+    `let ${hostVar}=this.getRequiredBrowserHost(${sessionVar});${hostVar}.setBrowserUseActive(!0,${sessionVar}.turnId);` +
+    `let ${pageVar}=await ${hostVar}.openPageForBrowserUse({startingUrl:this.initialPageUrl,turnId:${sessionVar}.turnId}),${tabInfoVar}=this.updateTabForPage(${pageVar},${hostVar}.routeKey);` +
+    `return ${newTabVisibility},`;
+
+  return currentSource.replace(needle, replacement);
+}
+
 function applyLinuxChromeExtensionStatusPatch(currentSource) {
   if (currentSource.includes("codexLinuxChromeProfileRoots")) {
     return currentSource;
@@ -918,6 +956,7 @@ function applyLinuxGitOriginsSourceFallbackPatch(currentSource) {
 module.exports = {
   applyBrowserUseNodeReplApprovalPatch,
   applyLinuxAvatarOverlayMousePassthroughPatch,
+  applyLinuxBrowserUseIabVisibleOnCreatePatch,
   applyLinuxChromeExtensionStatusPatch,
   applyLinuxExplicitIpcQuitPatch,
   applyLinuxExplicitQuitPromptBypassPatch,
