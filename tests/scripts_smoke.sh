@@ -2852,6 +2852,127 @@ EOF
     )
 }
 
+test_user_local_install_from_update_defers_record_only_metadata() {
+    info "Checking user-local helper refresh does not record metadata before update success"
+    local workspace="$TMP_DIR/user-local-from-update-record-only"
+    local fake_bin="$workspace/bin"
+    local home="$workspace/home"
+    local marker="$workspace/record-only-attempted"
+
+    mkdir -p "$fake_bin"
+    cat > "$fake_bin/7z" <<'SCRIPT'
+#!/usr/bin/env bash
+set -euo pipefail
+: "${RECORD_ONLY_MARKER:?}"
+mkdir -p "$(dirname "$RECORD_ONLY_MARKER")"
+printf '%s\n' "attempted" > "$RECORD_ONLY_MARKER"
+exit 1
+SCRIPT
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fake_bin/systemctl"
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$fake_bin/update-desktop-database"
+    chmod +x "$fake_bin/7z" "$fake_bin/systemctl" "$fake_bin/update-desktop-database"
+
+    PATH="$fake_bin:$PATH" \
+        HOME="$home" \
+        XDG_DATA_HOME="$workspace/data" \
+        XDG_STATE_HOME="$workspace/state" \
+        RECORD_ONLY_MARKER="$marker" \
+        CODEX_USER_LOCAL_SOURCE_REPO_DIR="$REPO_DIR" \
+        bash "$REPO_DIR/contrib/user-local-install/install-user-local.sh" --from-update >/dev/null
+    assert_file_not_exists "$marker"
+
+    PATH="$fake_bin:$PATH" \
+        HOME="$home" \
+        XDG_DATA_HOME="$workspace/data" \
+        XDG_STATE_HOME="$workspace/state" \
+        RECORD_ONLY_MARKER="$marker" \
+        CODEX_USER_LOCAL_SOURCE_REPO_DIR="$REPO_DIR" \
+        bash "$REPO_DIR/contrib/user-local-install/install-user-local.sh" >/dev/null
+    assert_file_exists "$marker"
+}
+
+test_user_local_prepare_build_repo_updates_existing_single_branch_fetch_refspec() {
+    info "Checking user-local managed checkout can switch branches after a single-branch clone"
+    local workspace="$TMP_DIR/user-local-single-branch-refspec"
+    local origin_repo="$workspace/origin.git"
+    local upstream_repo="$workspace/upstream"
+    local unmanaged_source="$workspace/source-without-git"
+    local managed_repo="$workspace/xdg-data/codex-desktop-linux/managed-repo"
+    local install_env="$workspace/install.env"
+
+    mkdir -p "$workspace" "$unmanaged_source"
+    git init --bare --initial-branch=main "$origin_repo" >/dev/null
+    git clone "$origin_repo" "$upstream_repo" >/dev/null 2>&1
+    git -C "$upstream_repo" config user.name "Smoke Test"
+    git -C "$upstream_repo" config user.email "smoke@example.com"
+    cat > "$upstream_repo/branch.txt" <<'EOF'
+main-branch
+EOF
+    git -C "$upstream_repo" add branch.txt
+    git -C "$upstream_repo" commit -m "base" >/dev/null
+    git -C "$upstream_repo" push -u origin main >/dev/null
+
+    (
+        export HOME="$workspace/home"
+        export XDG_DATA_HOME="$workspace/xdg-data"
+        export XDG_STATE_HOME="$workspace/xdg-state"
+        mkdir -p "$HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
+
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/contrib/user-local-install/files/.local/lib/codex-desktop-linux/common.sh"
+
+        INSTALL_CONFIG_FILE="$install_env"
+        cat > "$INSTALL_CONFIG_FILE" <<EOF
+SOURCE_REPO_DIR=$(printf '%q' "$unmanaged_source")
+MANAGED_REPO_DIR=$(printf '%q' "$managed_repo")
+REPO_ORIGIN_URL=$(printf '%q' "$origin_repo")
+REPO_DEFAULT_BRANCH=$(printf '%q' "main")
+OPT_ROOT=$(printf '%q' "$workspace/opt")
+EOF
+
+        prepare_build_repo
+
+        [ "$(git -C "$MANAGED_REPO_DIR" rev-parse --abbrev-ref HEAD)" = "main" ] \
+            || fail "Expected managed checkout to start on main"
+        [ "$(git -C "$MANAGED_REPO_DIR" config --get-all remote.origin.fetch)" = "+refs/heads/*:refs/remotes/origin/*" ] \
+            || fail "Expected managed checkout fetch refspec to include all branches"
+    )
+
+    git -C "$upstream_repo" checkout -q -b master
+    cat > "$upstream_repo/branch.txt" <<'EOF'
+master-branch
+EOF
+    git -C "$upstream_repo" commit -am "master branch" >/dev/null
+    git -C "$upstream_repo" push -u origin master >/dev/null
+    git --git-dir="$origin_repo" symbolic-ref HEAD refs/heads/master
+
+    (
+        export HOME="$workspace/home"
+        export XDG_DATA_HOME="$workspace/xdg-data"
+        export XDG_STATE_HOME="$workspace/xdg-state"
+        mkdir -p "$HOME" "$XDG_DATA_HOME" "$XDG_STATE_HOME"
+
+        # shellcheck disable=SC1091
+        source "$REPO_DIR/contrib/user-local-install/files/.local/lib/codex-desktop-linux/common.sh"
+
+        INSTALL_CONFIG_FILE="$install_env"
+        cat > "$INSTALL_CONFIG_FILE" <<EOF
+SOURCE_REPO_DIR=$(printf '%q' "$unmanaged_source")
+MANAGED_REPO_DIR=$(printf '%q' "$managed_repo")
+REPO_ORIGIN_URL=$(printf '%q' "$origin_repo")
+REPO_DEFAULT_BRANCH=$(printf '%q' "master")
+OPT_ROOT=$(printf '%q' "$workspace/opt")
+EOF
+
+        prepare_build_repo
+
+        [ "$(git -C "$MANAGED_REPO_DIR" rev-parse --abbrev-ref HEAD)" = "master" ] \
+            || fail "Expected managed checkout to switch to master"
+        [ "$(cat "$MANAGED_REPO_DIR/branch.txt")" = "master-branch" ] \
+            || fail "Expected managed checkout contents from the newly selected branch"
+    )
+}
+
 test_user_local_prepare_build_repo_handles_deleted_overlay_paths() {
     info "Checking user-local managed checkout tolerates overlay paths deleted in the worktree"
     local workspace="$TMP_DIR/user-local-deleted-overlay"
@@ -3061,6 +3182,8 @@ main() {
     test_user_local_prepare_build_repo_detects_default_branch_without_recorded_branch
     test_user_local_prepare_build_repo_ignores_stale_recorded_default_branch
     test_user_local_prepare_build_repo_ignores_stale_source_origin_head
+    test_user_local_install_from_update_defers_record_only_metadata
+    test_user_local_prepare_build_repo_updates_existing_single_branch_fetch_refspec
     test_user_local_prepare_build_repo_handles_deleted_overlay_paths
     test_user_local_prepare_build_repo_removes_rename_source_paths
     test_user_local_prepare_build_repo_skips_unmerged_overlay_paths

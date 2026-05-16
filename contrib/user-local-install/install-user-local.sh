@@ -129,7 +129,7 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "${HOME}/.local/share/applications" >/dev/null 2>&1 || true
 fi
 
-if [ -x "${HOME}/.local/bin/codex-desktop-update" ]; then
+if [ "$FROM_UPDATE" -eq 0 ] && [ -x "${HOME}/.local/bin/codex-desktop-update" ]; then
     "${HOME}/.local/bin/codex-desktop-update" --record-only >/dev/null 2>&1 || true
 fi
 

@@ -234,6 +234,10 @@ source_repo_overlay_signature() {
     } | sha256sum | awk '{ print $1 }'
 }
 
+configure_managed_repo_fetch() {
+    git -C "$MANAGED_REPO_DIR" config --replace-all remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+}
+
 ensure_managed_repo() {
     local origin_url branch
     origin_url="$(repo_origin_url)" || return 1
@@ -242,12 +246,14 @@ ensure_managed_repo() {
     mkdir -p "$(dirname "$MANAGED_REPO_DIR")"
     if [ -d "$MANAGED_REPO_DIR/.git" ]; then
         git -C "$MANAGED_REPO_DIR" remote set-url origin "$origin_url"
+        configure_managed_repo_fetch
         return 0
     fi
 
     rm -rf "$MANAGED_REPO_DIR"
     git clone --origin origin --branch "$branch" --single-branch "$origin_url" "$MANAGED_REPO_DIR" >/dev/null 2>&1 \
         || git clone --origin origin "$origin_url" "$MANAGED_REPO_DIR" >/dev/null
+    configure_managed_repo_fetch
 }
 
 apply_source_overlay() {
