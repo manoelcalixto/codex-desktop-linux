@@ -131,6 +131,8 @@ function withConversationRuntime(fn, options = {}) {
   const timers = [];
   const fakeWindow = {
     AudioContext: options.AudioContext,
+    innerHeight: options.innerHeight ?? 900,
+    innerWidth: options.innerWidth ?? 1600,
     webkitAudioContext: options.webkitAudioContext,
     addEventListener(type, callback) {
       if (type === "message") {
@@ -247,9 +249,26 @@ function createFakeDocument() {
   const nodes = new Map();
   const bodyClassList = createFakeClassList();
   const rootClassList = createFakeClassList();
+  const rootStyleValues = new Map();
+  const rootStyle = {
+    getPropertyValue(name) {
+      return rootStyleValues.get(name) ?? "";
+    },
+    removeProperty(name) {
+      const value = rootStyleValues.get(name) ?? "";
+      rootStyleValues.delete(name);
+      return value;
+    },
+    setProperty(name, value) {
+      rootStyleValues.set(name, value);
+    },
+  };
   const composerClassList = createFakeClassList();
   const composerSurface = {
     classList: composerClassList,
+    getBoundingClientRect() {
+      return { right: 1200, top: 760 };
+    },
   };
   const composerAnchor = {
     parentElement: composerSurface,
@@ -312,7 +331,7 @@ function createFakeDocument() {
     body,
     bodyClassList,
     head,
-    documentElement: { classList: rootClassList },
+    documentElement: { classList: rootClassList, clientHeight: 900, clientWidth: 1600, style: rootStyle },
     getElementById(id) {
       return nodes.get(id) ?? null;
     },
@@ -321,6 +340,7 @@ function createFakeDocument() {
     },
     createElement,
     composerClassList,
+    rootStyle,
   };
 }
 
@@ -364,7 +384,7 @@ test("main bundle patch upgrades older conversation speech gates", () => {
 
 test("composer runtime appends one browser-side conversation controller", () => {
   const patched = twice(applyComposerRuntimePatch, "console.log(`composer`);");
-  assert.match(patched, /conversation-mode-v18/);
+  assert.match(patched, /conversation-mode-v19/);
   assert.match(patched, /activeConversationId/);
   assert.match(patched, /seenAssistantKeys/);
   assert.match(patched, /assistantKey/);
@@ -550,10 +570,31 @@ test("conversation runtime shows an active aura and explicit stop control", () =
     assert.equal(globalThis.codexLinuxConversationIsActive("thread-a"), false);
     assert.equal(fakeDocument.bodyClassList.contains("codex-linux-conversation-active"), false);
     assert.equal(fakeDocument.composerClassList.contains("codex-linux-conversation-composer-aura"), false);
+    assert.equal(fakeDocument.rootStyle.getPropertyValue("--codex-linux-conversation-control-right"), "");
     assert.equal(stopButton.hidden, true);
     assert.ok(fetchBodies(events).some((body) => body.action === "stop"));
     assert.deepEqual(stopActions, ["discard"]);
   }, { document: fakeDocument });
+});
+
+test("conversation runtime anchors controls near the composer on wide screens", () => {
+  const fakeDocument = createFakeDocument();
+  withConversationRuntime(() => {
+    assert.equal(
+      globalThis.codexLinuxConversationToggle({
+        conversationId: "thread-a",
+        isResponseInProgress: false,
+        startDictation() {},
+        stopDictation() {},
+        onStop() {},
+      }),
+      true,
+    );
+
+    assert.equal(fakeDocument.rootStyle.getPropertyValue("--codex-linux-conversation-control-right"), "352px");
+    assert.equal(fakeDocument.rootStyle.getPropertyValue("--codex-linux-conversation-stop-bottom"), "148px");
+    assert.equal(fakeDocument.rootStyle.getPropertyValue("--codex-linux-conversation-mute-bottom"), "194px");
+  }, { document: fakeDocument, innerHeight: 900, innerWidth: 1600 });
 });
 
 test("conversation runtime can mute the user microphone without exiting", () => {
