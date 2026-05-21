@@ -1242,6 +1242,45 @@ test("conversation runtime does not duplicate a queued suffix on same-text reren
   });
 });
 
+test("conversation runtime does not reread the same completed message after speech finishes", () => {
+  withConversationRuntime(({ events, timers }) => {
+    assert.equal(
+      globalThis.codexLinuxConversationToggle({
+        conversationId: "thread-a",
+        isResponseInProgress: false,
+        startDictation() {},
+        stopDictation() {},
+        onStop() {},
+      }),
+      true,
+    );
+    assert.equal(globalThis.codexLinuxConversationShouldSendTranscript("Run one final answer.", "send"), true);
+    assert.equal(
+      globalThis.codexLinuxConversationSync("thread-a", {
+        isResponseInProgress: true,
+        startDictation() {},
+        stopDictation() {},
+        onStop() {},
+      }),
+      true,
+    );
+
+    const final = "This completed assistant message should be read exactly once.";
+    globalThis.codexLinuxConversationAssistant({ completed: true }, final, "thread-a", "turn-one", false);
+    runTimer(timers, (timer) => timer.delay > 3000, "completed answer speech timer");
+
+    globalThis.codexLinuxConversationAssistant({ completed: true }, final, "thread-a", "turn-one", false);
+    globalThis.codexLinuxConversationAssistant({ completed: true }, final, "thread-a", "rerendered-turn-key", false);
+
+    assert.deepEqual(
+      fetchBodies(events)
+        .filter((body) => body.action === "speak")
+        .map((body) => body.text),
+      [final],
+    );
+  });
+});
+
 test("conversation runtime speaks same-turn suffix immediately after prior speech ends", () => {
   withConversationRuntime(({ events, timers }) => {
     assert.equal(
