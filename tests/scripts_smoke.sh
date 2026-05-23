@@ -31,6 +31,20 @@ assert_file_not_exists() {
     [ ! -e "$path" ] || fail "Expected file not to exist: $path"
 }
 
+assert_mode() {
+    local path="$1"
+    local expected="$2"
+    local actual
+    actual="$(python3 - "$path" <<'PY'
+import os
+import sys
+
+print(format(os.lstat(sys.argv[1]).st_mode & 0o777, "o"))
+PY
+)"
+    [ "$actual" = "$expected" ] || fail "Expected mode $expected for $path, got $actual"
+}
+
 assert_contains() {
     local path="$1"
     local pattern="$2"
@@ -131,6 +145,30 @@ test_common_helper_sourcing() {
     # shellcheck disable=SC1091
     source "$REPO_DIR/scripts/lib/package-common.sh"
     ensure_file_exists "$probe_file" "probe file"
+}
+
+test_package_payload_permission_normalization() {
+    info "Checking package payload permission normalization"
+    local root="$TMP_DIR/package-permissions"
+    local app_root="$root/opt/codex-desktop"
+
+    mkdir -p "$app_root/content/webview" "$root/usr/bin"
+    printf '%s\n' '#!/bin/bash' 'echo start' > "$app_root/start.sh"
+    printf '%s\n' '<!doctype html>' > "$app_root/content/webview/index.html"
+    printf '%s\n' '#!/bin/bash' 'exec /opt/codex-desktop/start.sh "$@"' > "$root/usr/bin/codex-desktop"
+    chmod 0700 "$root/opt" "$app_root" "$app_root/content" "$app_root/content/webview"
+    chmod 0700 "$app_root/start.sh" "$root/usr/bin/codex-desktop"
+    chmod 0600 "$app_root/content/webview/index.html"
+
+    # shellcheck disable=SC1091
+    source "$REPO_DIR/scripts/lib/package-common.sh"
+    normalize_package_payload_permissions "$root"
+
+    assert_mode "$app_root" "755"
+    assert_mode "$app_root/content/webview" "755"
+    assert_mode "$app_root/start.sh" "755"
+    assert_mode "$root/usr/bin/codex-desktop" "755"
+    assert_mode "$app_root/content/webview/index.html" "644"
 }
 
 test_deb_builder_smoke() {
@@ -452,6 +490,9 @@ test_rpm_builder_smoke() {
     mkdir -p "$workspace" "$dist_dir" "$capture_dir"
     make_stub_bin_dir "$bin_dir"
     make_fake_app "$app_dir"
+    chmod 0700 "$app_dir" "$app_dir/content" "$app_dir/content/webview"
+    chmod 0700 "$app_dir/start.sh"
+    chmod 0600 "$app_dir/content/webview/index.html"
     printf '#!/usr/bin/env bash\nexit 0\n' > "$updater_bin"
     chmod +x "$updater_bin"
 
@@ -514,7 +555,16 @@ SCRIPT
     assert_file_not_exists "$capture_dir/staging/usr/lib/systemd/user/codex-update-manager.service"
     assert_file_not_exists "$capture_dir/staging/usr/share/polkit-1/actions/com.github.ilysenko.codex-desktop-linux.update.policy"
     assert_file_not_exists "$capture_dir/staging/opt/codex-desktop/update-builder"
+    assert_mode "$capture_dir/staging/opt/codex-desktop" "755"
+    assert_mode "$capture_dir/staging/opt/codex-desktop/content/webview" "755"
+    assert_mode "$capture_dir/staging/opt/codex-desktop/start.sh" "755"
+    assert_mode "$capture_dir/staging/opt/codex-desktop/content/webview/index.html" "644"
     assert_contains "$capture_dir/codex-desktop.spec" "%if 0"
+    assert_contains "$capture_dir/codex-desktop.spec" "codex_elf_suffix ()(64bit)"
+    assert_contains "$capture_dir/codex-desktop.spec" "libatk-bridge-2.0.so.0"
+    assert_contains "$capture_dir/codex-desktop.spec" "libgbm.so.1"
+    assert_not_contains "$capture_dir/codex-desktop.spec" "at-spi2-atk"
+    assert_not_contains "$capture_dir/codex-desktop.spec" "mesa-libgbm"
     assert_contains "$capture_dir/codex-desktop.spec" "codex_no_updater_cleanup_update_manager_service"
     assert_contains "$capture_dir/staging/opt/codex-desktop/.codex-linux/codex-no-updater-transition-cleanup.sh" "codex_no_updater_cleanup_user_enablement_links"
 }
@@ -4476,6 +4526,7 @@ EOF
 
 main() {
     test_common_helper_sourcing
+    test_package_payload_permission_normalization
     test_deb_builder_smoke
     test_update_builder_preserves_enabled_linux_features_config
     test_deb_builder_respects_package_identity

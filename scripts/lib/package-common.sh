@@ -535,6 +535,15 @@ stage_optional_update_builder_bundle() {
     fi
 }
 
+normalize_package_payload_permissions() {
+    local root="$1"
+
+    [ -d "$root" ] || error "Missing package root: $root"
+    find "$root" -type d -exec chmod 0755 {} +
+    find "$root" -type f \( -perm /u=x -o -perm /g=x -o -perm /o=x \) -exec chmod 0755 {} +
+    find "$root" -type f ! \( -perm /u=x -o -perm /g=x -o -perm /o=x \) -exec chmod 0644 {} +
+}
+
 write_launcher_stub() {
     local root="$1"
 
