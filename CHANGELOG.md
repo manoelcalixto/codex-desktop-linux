@@ -13,6 +13,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   no dialog tool or display is available (headless/SSH/CI) or when
   `CODEX_BOOTSTRAP_NO_GUI=1` is set. The existing Python discovery/validation/
   write path is reused unchanged.
+- An "Install updates when you close Codex" toggle in the Keybinds settings page
+  (new "Updates" section). When on (the default, matching prior behavior), a
+  ready update waits for Codex to close and then installs; when off, updates
+  wait until you explicitly click Update. The toggle persists to
+  `~/.config/<appId>/settings.json` as `codex-linux-auto-update-on-exit`, and
+  `codex-update-manager` rereads it during reconciliation as an overlay over
+  `config.toml` so the in-app preference wins without restarting the service.
 - Launcher rendering mode `CODEX_LINUX_RENDERING_MODE=wayland-gpu`, which
   forces native Wayland with GPU compositing enabled and skips forced renderer
   accessibility by default for Wayland desktops where XWayland or software

@@ -77,6 +77,8 @@ pub struct PersistedState {
     pub notified_events: BTreeSet<String>,
     pub auto_install_on_app_exit: bool,
     #[serde(default)]
+    pub waiting_for_app_exit_auto_install: bool,
+    #[serde(default)]
     pub last_known_good_version: Option<String>,
     #[serde(default)]
     pub rollback_blocked_candidate_version: Option<String>,
@@ -113,6 +115,7 @@ impl PersistedState {
             error_message: None,
             notified_events: BTreeSet::new(),
             auto_install_on_app_exit,
+            waiting_for_app_exit_auto_install: false,
             last_known_good_version: None,
             rollback_blocked_candidate_version: None,
             cli_path: None,
@@ -149,6 +152,7 @@ impl PersistedState {
     /// Marks the state as failed while preserving any useful recovery metadata.
     pub fn mark_failed(&mut self, message: impl Into<String>) {
         self.status = UpdateStatus::Failed;
+        self.waiting_for_app_exit_auto_install = false;
         self.error_message = Some(message.into());
     }
 }
@@ -227,6 +231,7 @@ mod tests {
         state.status = UpdateStatus::WaitingForAppExit;
         state.candidate_version = Some("2026.03.25+feedface".to_string());
         state.notified_events.insert("ready_to_install".to_string());
+        state.waiting_for_app_exit_auto_install = true;
         state.save(&path)?;
 
         let loaded = PersistedState::load_or_default(&path, true)?;
@@ -238,6 +243,7 @@ mod tests {
         );
         assert!(loaded.notified_events.contains("ready_to_install"));
         assert!(!loaded.auto_install_on_app_exit);
+        assert!(loaded.waiting_for_app_exit_auto_install);
         Ok(())
     }
 
@@ -267,6 +273,7 @@ mod tests {
         assert_eq!(loaded.cli_installed_version, None);
         assert_eq!(loaded.cli_latest_version, None);
         assert_eq!(loaded.cli_error_message, None);
+        assert!(!loaded.waiting_for_app_exit_auto_install);
         Ok(())
     }
 
