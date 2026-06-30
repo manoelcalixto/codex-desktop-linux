@@ -806,7 +806,6 @@ test("default core patch descriptors are grouped and unique", () => {
     "linux-opaque-background",
     "linux-avatar-overlay-mouse-passthrough",
     "linux-tray",
-    "linux-workspace-root-open-targets",
   ]) {
     assert.equal(
       descriptors.find((descriptor) => descriptor.id === id)?.ciPolicy,
@@ -814,6 +813,11 @@ test("default core patch descriptors are grouped and unique", () => {
       `${id} should block upstream builds when it drifts`,
     );
   }
+  assert.equal(
+    descriptors.find((descriptor) => descriptor.id === "linux-workspace-root-open-targets")?.ciPolicy,
+    "optional",
+    "workspace-root open targets should not block app builds when upstream removes the File Manager insertion point",
+  );
 
   const descriptorOrder = new Map(descriptors.map((descriptor) => [descriptor.id, descriptor.order]));
   assert.ok(
