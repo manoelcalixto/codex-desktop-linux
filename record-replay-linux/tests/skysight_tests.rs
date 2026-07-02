@@ -28,6 +28,9 @@ fn skysight_paths_default_to_chronicle_resources_dir() {
     let old_code_home = env::var_os("CODEX_HOME");
     let old_runtime_dir = env::var_os("CODEX_SKYSIGHT_RUNTIME_DIR");
     let old_resources_dir = env::var_os("CODEX_SKYSIGHT_RESOURCES_DIR");
+    let old_memory_extension_dir = env::var_os("CODEX_SKYSIGHT_MEMORY_EXTENSION_DIR");
+    let old_chronicle_memory_extension_dir = env::var_os("CODEX_CHRONICLE_MEMORY_EXTENSION_DIR");
+    let old_exclusions_path = env::var_os("CODEX_SKYSIGHT_EXCLUSIONS_PATH");
 
     let temp = tempfile::tempdir().unwrap();
     let code_home = temp.path().join("codex-home");
@@ -35,21 +38,98 @@ fn skysight_paths_default_to_chronicle_resources_dir() {
     env::set_var("CODEX_HOME", &code_home);
     env::set_var("CODEX_SKYSIGHT_RUNTIME_DIR", &runtime_dir);
     env::remove_var("CODEX_SKYSIGHT_RESOURCES_DIR");
+    env::remove_var("CODEX_SKYSIGHT_MEMORY_EXTENSION_DIR");
+    env::remove_var("CODEX_CHRONICLE_MEMORY_EXTENSION_DIR");
+    env::remove_var("CODEX_SKYSIGHT_EXCLUSIONS_PATH");
 
     let paths = SkysightPaths::from_env();
 
     assert_eq!(
         paths.resources_dir,
         code_home
-            .join("memories_extensions")
+            .join("memories")
+            .join("extensions")
             .join("chronicle")
             .join("resources")
     );
+    assert_eq!(
+        paths.exclusions_path,
+        code_home
+            .join("memories")
+            .join("extensions")
+            .join("chronicle")
+            .join("exclusions.json")
+    );
     assert_eq!(paths.runtime_dir, runtime_dir);
+
+    let legacy_exclusions_path = code_home
+        .join("memories_extensions")
+        .join("chronicle")
+        .join("exclusions.json");
+    fs::create_dir_all(legacy_exclusions_path.parent().unwrap()).unwrap();
+    fs::write(
+        &legacy_exclusions_path,
+        r#"{"schema_version":1,"rules":[{"kind":"domain","value":"bank.example","reason":"private","updated_at":"2026-07-02T00:00:00Z"}]}"#,
+    )
+    .unwrap();
+
+    let exclusions = list_skysight_exclusions(&paths).unwrap();
+    assert_eq!(exclusions.len(), 1);
+    assert_eq!(exclusions[0].kind, "domain");
+    assert_eq!(exclusions[0].value, "bank.example");
+    assert!(paths.exclusions_path.is_file());
+    assert!(legacy_exclusions_path.is_file());
 
     restore_env("CODEX_HOME", old_code_home);
     restore_env("CODEX_SKYSIGHT_RUNTIME_DIR", old_runtime_dir);
     restore_env("CODEX_SKYSIGHT_RESOURCES_DIR", old_resources_dir);
+    restore_env(
+        "CODEX_SKYSIGHT_MEMORY_EXTENSION_DIR",
+        old_memory_extension_dir,
+    );
+    restore_env(
+        "CODEX_CHRONICLE_MEMORY_EXTENSION_DIR",
+        old_chronicle_memory_extension_dir,
+    );
+    restore_env("CODEX_SKYSIGHT_EXCLUSIONS_PATH", old_exclusions_path);
+}
+
+#[test]
+fn skysight_migrates_legacy_exclusions_with_daemon_path_overrides() {
+    let temp = tempfile::tempdir().unwrap();
+    let code_home = temp.path().join("real-code-home");
+    let runtime_dir = temp.path().join("runtime");
+    let memory_extension_dir = code_home
+        .join("memories")
+        .join("extensions")
+        .join("chronicle");
+    let custom_exclusions_path = temp.path().join("daemon").join("exclusions.json");
+    let legacy_exclusions_path = code_home
+        .join("memories_extensions")
+        .join("chronicle")
+        .join("exclusions.json");
+    fs::create_dir_all(legacy_exclusions_path.parent().unwrap()).unwrap();
+    fs::write(
+        &legacy_exclusions_path,
+        r#"{"schema_version":1,"rules":[{"kind":"app","value":"Secrets","reason":"private","updated_at":"2026-07-02T00:00:00Z"}]}"#,
+    )
+    .unwrap();
+
+    let mut paths = SkysightPaths::new(runtime_dir, memory_extension_dir.join("resources"));
+    paths.memory_extension_dir = memory_extension_dir.clone();
+    paths.resources_dir = memory_extension_dir.join("resources");
+    paths.exclusions_path = custom_exclusions_path.clone();
+    paths.memory_instructions_path = memory_extension_dir.join("SkysightMemoryInstructions.md");
+    paths.summarizer_path = memory_extension_dir.join("SkysightSummarizer.md");
+    assert_eq!(paths.memory_extension_dir, memory_extension_dir);
+    assert_eq!(paths.exclusions_path, custom_exclusions_path);
+
+    let exclusions = list_skysight_exclusions(&paths).unwrap();
+    assert_eq!(exclusions.len(), 1);
+    assert_eq!(exclusions[0].kind, "app");
+    assert_eq!(exclusions[0].value, "Secrets");
+    assert!(paths.exclusions_path.is_file());
+    assert!(legacy_exclusions_path.is_file());
 }
 
 #[test]
@@ -64,6 +144,7 @@ fn skysight_snapshot_creates_segment_directory_and_rollup_resources() {
     assert!(!status.is_running);
     assert!(status.pid.is_none());
     assert_eq!(status.end_reason.as_deref(), Some("snapshot-only"));
+    assert!(status.next_capture_at.is_none());
     assert!(status.status_path.is_file());
     assert!(status.memory_extension_dir.ends_with("resources"));
     let segment_dir = status
