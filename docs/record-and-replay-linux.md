@@ -80,6 +80,23 @@ The memory resources follow rolling-window semantics: `*-10min-*.md` summaries
 cover recent segment windows, while `*-6h-*.md` rollups are cadence-limited and
 reuse the current rollup until the next six-hour window is due.
 
+Linux Chronicle OCR is implemented as optional local backends. In `auto` mode,
+Skysight prefers RapidOCR through Python + ONNXRuntime when available, then
+falls back to the Tesseract CLI. Skysight reports OCR mode, backend selection,
+availability, language, version, dependency hints, and errors through
+`skysight status`, provider readiness events, and the Linux Chronicle bridge.
+Missing OCR dependencies are non-fatal unless `CODEX_SKYSIGHT_OCR=required`;
+in non-required modes Skysight continues writing Chronicle-shaped `.ocr.jsonl`
+rows with `runs_ocr=false`, empty `normalized_text`, and an explicit
+unavailable/disabled status.
+
+OCR is downstream of privacy gating. Screenshot suppression prevents OCR, and
+recognized text that matches an exclusion value is stripped before it can be
+persisted to `.ocr.jsonl` or summarized. Markdown resources include OCR
+status/count/path/truncation summaries only; raw OCR text is not copied into
+durable resources by default. RapidOCR is the preferred advanced screen OCR
+provider; Tesseract remains the safe local fallback.
+
 After rebuilding the feature, Josh can verify the branch with:
 
 1. `node --test linux-features/record-and-replay/test.js`
