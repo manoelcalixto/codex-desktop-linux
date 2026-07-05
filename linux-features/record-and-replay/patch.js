@@ -97,6 +97,7 @@ function applyRecordReplayPluginGatePatch(currentSource) {
 function recordReplayBridgeSource({ childProcessVar, fsVar, pathVar }) {
   return [
     `"chronicle-permissions":async()=>{let e=await codexLinuxChronicleSidecarControlStateAsync(),t=e.enabled===!0?"granted":"unknown";return{accessibility:t,screenRecording:t,chronicleSidecarPresent:e.enabled===!0,chronicleSidecarProcessState:e.state??"disabled",chronicleOcrAvailable:e.chronicleOcrAvailable===!0,chronicleOcrStatus:e.chronicleOcrStatus??"unknown",chronicleOcrBackend:e.chronicleOcrBackend??null,chronicleOcrLanguage:e.chronicleOcrLanguage??null}}`,
+    recordReplayEnsureChronicleSidecarRunningHandler(),
     `"getChronicleSidecarControlState":async()=>codexLinuxChronicleSidecarControlStateAsync()`,
     `"toggleChronicleSidecar":async()=>codexLinuxChronicleToggleSidecar()`,
     `"linux-record-replay-doctor":async()=>codexLinuxRecordReplayRun([${JSON.stringify("doctor")}],15000)`,
@@ -126,6 +127,10 @@ function recordReplayBridgeSource({ childProcessVar, fsVar, pathVar }) {
   ].join(",");
 }
 
+function recordReplayEnsureChronicleSidecarRunningHandler() {
+  return `"ensureChronicleSidecarRunning":async({summaryAgent:e}={})=>codexLinuxChronicleEnsureSidecarRunning(e)`;
+}
+
 function recordReplayActiveSpeechContextBridgeHandler() {
   return `"linux-record-replay-speech-context-active":async({transcript:e,source:t}={})=>{let n=codexLinuxRecordReplayString(e);if(!n)return{ok:!1,action:"record.speech-active",message:"transcript is required"};let r=await codexLinuxRecordReplayRun(["status"],5000),a=r?.json?.session_dir;if(!r?.ok||r?.json?.state!==\`active\`||!a)return{ok:!1,action:"record.speech-active",message:"No active Record & Replay session",status:r};let o=["record","speech","--session-dir",String(a),"--text",n];t&&o.push("--source",String(t));return codexLinuxRecordReplayRun(o,15000)}`;
 }
@@ -149,6 +154,17 @@ async function codexLinuxChronicleEnsureSidecarRunning(e){let t=await codexLinux
 async function codexLinuxChronicleToggleSidecar(){let e=await codexLinuxRecordReplayRun(["skysight","status"],5000),t=e?.json&&typeof e.json==="object"?e.json:null,n=String(t?.state||""),r=t?.is_running===!0||t?.isRunning===!0,a=t?.paused===!0||t?.is_paused===!0||t?.isPaused===!0||n==="paused";if(n==="running"&&r&&!a)return codexLinuxChronicleControlStateFromSkysight(await codexLinuxRecordReplayRun(["skysight","pause"],10000));if(r&&a)return codexLinuxChronicleEnsureSidecarRunning(!0);return codexLinuxChronicleControlStateFromSkysight(await codexLinuxRecordReplayRun(["skysight","start","--summary-agent","enabled"],15000))}`;
 }
 
+function recordReplayChronicleEnsureHelperSource({ includeSummaryArgs }) {
+  return [
+    includeSummaryArgs
+      ? `function codexLinuxChronicleSummaryAgentArgs(e){return e===!0?["--summary-agent","enabled"]:e===!1?["--summary-agent","disabled"]:[]}`
+      : null,
+    `async function codexLinuxChronicleEnsureSidecarRunning(e){let t=await codexLinuxRecordReplayRun(["skysight","status"],5000),n=t?.json&&typeof t.json==="object"?t.json:null,r=String(n?.state||""),a=n?.is_running===!0||n?.isRunning===!0,o=n?.paused===!0||n?.is_paused===!0||n?.isPaused===!0||r==="paused",s=codexLinuxChronicleSummaryAgentArgs(e),i=e===!0&&(n?.summary_agent_enabled!==!0&&n?.summaryAgentEnabled!==!0);if(r==="running"&&a&&!o)return i?codexLinuxChronicleControlStateFromSkysight(await codexLinuxRecordReplayRun(["skysight","start",...s],15000)):codexLinuxChronicleControlStateFromSkysight(t);if(a&&o){i&&await codexLinuxRecordReplayRun(["skysight","start",...s],15000);return codexLinuxChronicleControlStateFromSkysight(await codexLinuxRecordReplayRun(["skysight","resume"],10000))}return codexLinuxChronicleControlStateFromSkysight(await codexLinuxRecordReplayRun(["skysight","start",...s],15000))}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function upgradeRecordReplayBridgeSource(currentSource) {
   const patchName = "Record & Replay main bridge patch";
   let patchedSource = currentSource;
@@ -159,6 +175,14 @@ function upgradeRecordReplayBridgeSource(currentSource) {
     } else {
       patchedSource = `${recordReplayChronicleHelperSource({ childProcessVar })}\n${patchedSource}`;
     }
+  }
+  if (
+    patchedSource.includes("function codexLinuxChronicleControlStateFromSkysight") &&
+    !patchedSource.includes("function codexLinuxChronicleEnsureSidecarRunning")
+  ) {
+    patchedSource = `${recordReplayChronicleEnsureHelperSource({
+      includeSummaryArgs: !patchedSource.includes("function codexLinuxChronicleSummaryAgentArgs"),
+    })}\n${patchedSource}`;
   }
 
   if (!patchedSource.includes('"linux-record-replay-speech-context-active":async')) {
@@ -173,7 +197,22 @@ function upgradeRecordReplayBridgeSource(currentSource) {
     }
   }
 
-  const hasChronicleHelpers = patchedSource.includes("function codexLinuxChronicleControlStateFromSkysight");
+  const hasChronicleHelpers =
+    patchedSource.includes("function codexLinuxChronicleControlStateFromSkysight") &&
+    patchedSource.includes("function codexLinuxChronicleEnsureSidecarRunning");
+  if (!patchedSource.includes('"ensureChronicleSidecarRunning":async')) {
+    const getStateNeedle = `"getChronicleSidecarControlState":async`;
+    if (!patchedSource.includes(getStateNeedle)) {
+      warn("Could not find Chronicle ensure-running bridge insertion point", patchName);
+    } else if (!hasChronicleHelpers) {
+      warn("Could not install Chronicle ensure-running bridge handler without helper functions", patchName);
+    } else {
+      patchedSource = patchedSource.replace(
+        getStateNeedle,
+        `${recordReplayEnsureChronicleSidecarRunningHandler()},${getStateNeedle}`,
+      );
+    }
+  }
   if (!patchedSource.includes('"chronicle-permissions":async')) {
     const doctorNeedle = `"linux-record-replay-doctor":async`;
     if (!patchedSource.includes(doctorNeedle)) {
@@ -214,6 +253,47 @@ function applyRecordReplayChronicleTrayPatch(currentSource) {
       connectionExpression,
     ) =>
       `getChronicleSidecarControlState:()=>process.platform===\`linux\`?codexLinuxChronicleSidecarControlState():${upstreamStateExpression},toggleChronicleSidecar:async()=>{if(process.platform===\`linux\`)return codexLinuxChronicleToggleSidecar();let ${connectionVar}=${connectionExpression};return ${connectionVar}==null?${disabledStateVar}:${connectionVar}.getChronicleSidecarControlState().running?${connectionVar}.pauseChronicleSidecar():${connectionVar}.resumeChronicleSidecar()}`,
+  );
+}
+
+function bridgeInvokeFunctionName(currentSource) {
+  const match = currentSource.match(/([A-Za-z_$][\w$]*)\(`batch-write-config-value`,\{/u);
+  return match?.[1] ?? null;
+}
+
+function applyRecordReplayChronicleSettingsPatch(currentSource) {
+  const patchName = "Record & Replay Chronicle settings start patch";
+  if (currentSource.includes("ensureChronicleSidecarRunning")) {
+    return currentSource;
+  }
+  if (!currentSource.includes("settings.general.experimentalFeatures.chronicle.name")) {
+    return currentSource;
+  }
+
+  const bridgeInvokeVar = bridgeInvokeFunctionName(currentSource);
+  if (bridgeInvokeVar == null) {
+    warn("Could not find webview bridge invoke helper", patchName);
+    return currentSource;
+  }
+
+  const enablePattern =
+    /await ([A-Za-z_$][\w$]*)\.mutateAsync\(\{enabled:!0\}\),([A-Za-z_$][\w$]*)\?\.\(([A-Za-z_$][\w$]*),!0\),await ([A-Za-z_$][\w$]*)\.invalidateQueries\(\{queryKey:([A-Za-z_$][\w$]*)\(`chronicle-permissions`\)\}\)/u;
+  if (!enablePattern.test(currentSource)) {
+    warn("Could not find Chronicle enable action", patchName);
+    return currentSource;
+  }
+
+  return currentSource.replace(
+    enablePattern,
+    (
+      _match,
+      mutationVar,
+      callbackVar,
+      previousEnabledVar,
+      queryClientVar,
+      queryKeyVar,
+    ) =>
+      `await ${mutationVar}.mutateAsync({enabled:!0}),await ${bridgeInvokeVar}(\`ensureChronicleSidecarRunning\`,{summaryAgent:!0}),${callbackVar}?.(${previousEnabledVar},!0),await ${queryClientVar}.invalidateQueries({queryKey:${queryKeyVar}(\`chronicle-permissions\`)})`,
   );
 }
 
@@ -408,6 +488,16 @@ const descriptors = [
     apply: applyRecordReplayHudPatch,
   },
   {
+    id: "record-replay-chronicle-settings-start",
+    phase: "webview-asset",
+    order: 153,
+    ciPolicy: "optional",
+    pattern: /^personalization-settings-.*\.js$/,
+    missingDescription: "personalization settings bundle",
+    skipDescription: "Chronicle settings start patch",
+    apply: applyRecordReplayChronicleSettingsPatch,
+  },
+  {
     id: "record-replay-dictation-transcript",
     phase: "webview-asset",
     order: 20695,
@@ -435,6 +525,7 @@ module.exports = {
   HUD_RUNTIME_VERSION,
   applyRecordReplayDictationTranscriptPatch,
   applyRecordReplayGlobalDictationTranscriptPatch,
+  applyRecordReplayChronicleSettingsPatch,
   applyRecordReplayPluginGatePatch,
   applyRecordReplayHudPatch,
   applyRecordReplayMainBridgePatch,

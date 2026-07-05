@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawn } = require("node:child_process");
 const {
   disabledLinuxFeatureCleanupHooks,
   enabledLinuxFeatureIds,
@@ -16,6 +16,7 @@ const {
   stageEnabledLinuxFeatureInstall,
 } = require("../../scripts/lib/linux-features.js");
 const {
+  applyRecordReplayChronicleSettingsPatch,
   applyRecordReplayDictationTranscriptPatch,
   applyRecordReplayGlobalDictationTranscriptPatch,
   applyRecordReplayHudPatch,
@@ -81,6 +82,7 @@ test("record-and-replay required files exist", () => {
   assert.equal(fs.existsSync(path.join(__dirname, "patch.js")), true);
   assert.equal(fs.existsSync(path.join(__dirname, "stage.sh")), true);
   assert.equal(fs.existsSync(path.join(__dirname, "cleanup.sh")), true);
+  assert.equal(fs.existsSync(path.join(__dirname, "chronicle-cold-start.sh")), true);
   assert.equal(fs.existsSync(path.join(__dirname, "test.js")), true);
   assert.equal(fs.existsSync(path.join(__dirname, "plugin-template/.codex-plugin/plugin.json")), true);
   assert.equal(fs.existsSync(path.join(__dirname, "plugin-template/.mcp.json")), true);
@@ -104,6 +106,29 @@ test("record-and-replay enables when listed in features.json", () => {
   });
 });
 
+test("record-and-replay stages Chronicle cold-start hook when enabled", () => {
+  withTempFeatureRoot(["record-and-replay"], (root) => {
+    const installDir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-record-replay-runtime-hooks-"));
+    try {
+      const plan = stageEnabledLinuxFeatureInstall(installDir, { featuresRoot: root });
+      assert.deepEqual(
+        plan.runtimeHooks.map((hook) => [hook.key, hook.target, hook.mode.toString(8)]),
+        [["coldStart", ".codex-linux/cold-start.d/record-and-replay-chronicle-cold-start.sh", "755"]],
+      );
+      const hookPath = path.join(
+        installDir,
+        ".codex-linux",
+        "cold-start.d",
+        "record-and-replay-chronicle-cold-start.sh",
+      );
+      assert.equal(fs.existsSync(hookPath), true);
+      assert.equal(fs.statSync(hookPath).mode & 0o777, 0o755);
+    } finally {
+      fs.rmSync(installDir, { recursive: true, force: true });
+    }
+  });
+});
+
 test("record-and-replay patch descriptor loads only when feature is enabled", () => {
   withTempFeatureConfig([], (root) => {
     assert.deepEqual(loadLinuxFeaturePatchDescriptors({ featuresRoot: root }), []);
@@ -114,6 +139,7 @@ test("record-and-replay patch descriptor loads only when feature is enabled", ()
       "feature:record-and-replay:record-and-replay-plugin-gate",
       "feature:record-and-replay:linux-record-replay-main-bridge",
       "feature:record-and-replay:record-replay-hud",
+      "feature:record-and-replay:record-replay-chronicle-settings-start",
       "feature:record-and-replay:record-replay-dictation-transcript",
       "feature:record-and-replay:record-replay-global-dictation-transcript",
     ]);
@@ -138,7 +164,7 @@ test("record-and-replay global dictation descriptor tracks floating dictation bu
 });
 
 test("record-and-replay bridge patch is idempotent and uses execFile", () => {
-  assert.equal(descriptors.length, 5);
+  assert.equal(descriptors.length, 6);
   const source = [
     "const cp=require(\"node:child_process\"),fs=require(\"node:fs\"),path=require(\"node:path\");",
     "var bridge={\"get-global-state\":async({key:e})=>null};",
@@ -154,6 +180,7 @@ test("record-and-replay bridge patch is idempotent and uses execFile", () => {
   assert.match(patched, /chronicleOcrAvailable/);
   assert.match(patched, /chronicleOcrStatus/);
   assert.match(patched, /chronicleOcrBackend/);
+  assert.match(patched, /"ensureChronicleSidecarRunning":async/);
   assert.match(patched, /"getChronicleSidecarControlState":async/);
   assert.match(patched, /"toggleChronicleSidecar":async/);
   assert.match(patched, /codexLinuxChronicleControlStateFromSkysight/);
@@ -195,6 +222,27 @@ test("record-and-replay bridge patch is idempotent and uses execFile", () => {
   assert.doesNotMatch(patched, /"--target"/);
   assert.doesNotMatch(patched, /"--target-dir"/);
   assert.doesNotMatch(patched, /"--mode"/);
+});
+
+test("record-and-replay Chronicle settings starts Skysight when enabling the toggle", () => {
+  const descriptor = descriptors.find((patch) => patch.id === "record-replay-chronicle-settings-start");
+  assert.ok(descriptor);
+  assert.equal(descriptor.pattern.test("personalization-settings-CWv0mZW8.js"), true);
+  assert.equal(descriptor.pattern.test("general-settings-nSa2QlZR.js"), false);
+
+  const source = [
+    "function Nt(){return ve(`batch-write-config-value`,{hostId:n,edits:[]})}",
+    "const label=`settings.general.experimentalFeatures.chronicle.name`;",
+    "let A=async({rememberConsentAccepted:n,showSetupDialog:r})=>{let a=T;try{await o.mutateAsync({enabled:!0}),e?.(a,!0),await i.invalidateQueries({queryKey:d(`chronicle-permissions`)})}catch(e){v.error(`Failed to enable Chronicle`)}};",
+  ].join("");
+  const patched = applyRecordReplayChronicleSettingsPatch(source);
+
+  assert.notEqual(patched, source);
+  assert.equal(applyRecordReplayChronicleSettingsPatch(patched), patched);
+  assert.match(
+    patched,
+    /await o\.mutateAsync\(\{enabled:!0\}\),await ve\(`ensureChronicleSidecarRunning`,\{summaryAgent:!0\}\),e\?\.\(a,!0\),await i\.invalidateQueries\(\{queryKey:d\(`chronicle-permissions`\)\}\)/,
+  );
 });
 
 test("record-and-replay Chronicle helpers map Skysight status into upstream sidecar state", () => {
@@ -452,6 +500,20 @@ test("record-and-replay bridge patch upgrades old patched bundles with active sp
   );
   assert.match(patched, /"linux-record-replay-browser-trace":async\(\)=>null/);
   assert.doesNotMatch(patched, /"chronicle-permissions":async/);
+});
+
+test("record-and-replay bridge patch upgrades old Chronicle bundles with ensure-running handler", () => {
+  const oldPatched = [
+    "function codexLinuxChronicleControlStateFromSkysight(){}",
+    'var bridge={"chronicle-permissions":async()=>null,"getChronicleSidecarControlState":async()=>null,"toggleChronicleSidecar":async()=>null,"linux-record-replay-doctor":async()=>null};',
+  ].join("");
+  const patched = applyRecordReplayMainBridgePatch(oldPatched);
+
+  assert.notEqual(patched, oldPatched);
+  assert.equal(applyRecordReplayMainBridgePatch(patched), patched);
+  assert.match(patched, /"chronicle-permissions":async\(\)=>null,"ensureChronicleSidecarRunning":async/);
+  assert.match(patched, /codexLinuxChronicleEnsureSidecarRunning/);
+  assert.match(patched, /"getChronicleSidecarControlState":async\(\)=>null/);
 });
 
 test("record-and-replay docs mention pause resume and Chronicle-compatible resources", () => {
@@ -739,6 +801,130 @@ test("record-and-replay plugin template matches upstream-shaped plugin UX", () =
   assert.match(skill, /I'm done recording\./);
   assert.match(skill, /speech_context/);
   assert.match(skill, /not a raw pointer or keyboard macro recorder/);
+});
+
+test("record-and-replay Chronicle cold-start hook follows Chronicle config", () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-record-replay-chronicle-cold-start-"));
+  try {
+    const appDir = path.join(workspace, "app");
+    const codeHome = path.join(workspace, "codex-home");
+    const argsPath = path.join(workspace, "args.txt");
+    const fakeBinary = path.join(appDir, "resources/native/codex-record-replay-linux");
+    fs.mkdirSync(path.dirname(fakeBinary), { recursive: true });
+    fs.mkdirSync(codeHome, { recursive: true });
+    fs.writeFileSync(
+      fakeBinary,
+      "#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CODEX_RECORD_REPLAY_STARTED_ARGS\"\n",
+    );
+    fs.chmodSync(fakeBinary, 0o755);
+
+    const hookEnv = {
+      ...process.env,
+      CODEX_HOME: codeHome,
+      CODEX_RECORD_REPLAY_STARTED_ARGS: argsPath,
+      CODEX_RECORD_REPLAY_CHRONICLE_INTERVAL_SECONDS: "7",
+    };
+
+    fs.writeFileSync(path.join(codeHome, "config.toml"), "[features]\nchronicle = true\n");
+    execFileSync("bash", [path.join(featureDir, "chronicle-cold-start.sh"), appDir], {
+      env: hookEnv,
+      stdio: "pipe",
+    });
+    assert.equal(
+      fs.readFileSync(argsPath, "utf8").trim(),
+      "skysight start --interval-seconds 7 --summary-agent enabled",
+    );
+
+    fs.rmSync(argsPath, { force: true });
+    fs.writeFileSync(path.join(codeHome, "config.toml"), "[features]\nchronicle = false\n");
+    execFileSync("bash", [path.join(featureDir, "chronicle-cold-start.sh"), appDir], {
+      env: hookEnv,
+      stdio: "pipe",
+    });
+    assert.equal(fs.existsSync(argsPath), false);
+
+    fs.writeFileSync(path.join(codeHome, "config.toml"), "[features]\nchronicle = true\n");
+    execFileSync("bash", [path.join(featureDir, "chronicle-cold-start.sh"), appDir], {
+      env: {
+        ...hookEnv,
+        CODEX_RECORD_REPLAY_CHRONICLE_AUTOSTART: "0",
+      },
+      stdio: "pipe",
+    });
+    assert.equal(fs.existsSync(argsPath), false);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
+});
+
+test("record-and-replay Chronicle cold-start hook serializes concurrent starts", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "codex-record-replay-chronicle-lock-"));
+  try {
+    const appDir = path.join(workspace, "app");
+    const codeHome = path.join(workspace, "codex-home");
+    const runtimeDir = path.join(workspace, "runtime");
+    const argsPath = path.join(workspace, "args.txt");
+    const racePath = path.join(workspace, "race.txt");
+    const activeDir = path.join(workspace, "active");
+    const fakeBinary = path.join(appDir, "resources/native/codex-record-replay-linux");
+    fs.mkdirSync(path.dirname(fakeBinary), { recursive: true });
+    fs.mkdirSync(codeHome, { recursive: true });
+    fs.writeFileSync(path.join(codeHome, "config.toml"), "[features]\nchronicle = true\n");
+    fs.writeFileSync(
+      fakeBinary,
+      [
+        "#!/usr/bin/env bash",
+        "set -Eeuo pipefail",
+        "if mkdir \"$CODEX_RECORD_REPLAY_ACTIVE_DIR\" 2>/dev/null; then",
+        "  printf '%s\\n' \"$*\" >> \"$CODEX_RECORD_REPLAY_STARTED_ARGS\"",
+        "  sleep 0.3",
+        "  rmdir \"$CODEX_RECORD_REPLAY_ACTIVE_DIR\"",
+        "else",
+        "  printf 'race\\n' > \"$CODEX_RECORD_REPLAY_RACE_FILE\"",
+        "  exit 42",
+        "fi",
+        "",
+      ].join("\n"),
+    );
+    fs.chmodSync(fakeBinary, 0o755);
+
+    const env = {
+      ...process.env,
+      CODEX_HOME: codeHome,
+      CODEX_SKYSIGHT_RUNTIME_DIR: runtimeDir,
+      CODEX_RECORD_REPLAY_ACTIVE_DIR: activeDir,
+      CODEX_RECORD_REPLAY_RACE_FILE: racePath,
+      CODEX_RECORD_REPLAY_STARTED_ARGS: argsPath,
+    };
+    const runHook = () =>
+      new Promise((resolve, reject) => {
+        const child = spawn("bash", [path.join(featureDir, "chronicle-cold-start.sh"), appDir], {
+          env,
+          stdio: "pipe",
+        });
+        let stderr = "";
+        child.stderr.on("data", (chunk) => {
+          stderr += chunk;
+        });
+        child.on("error", reject);
+        child.on("close", (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(new Error(`hook exited ${code}: ${stderr}`));
+          }
+        });
+      });
+
+    await Promise.all([runHook(), runHook()]);
+
+    assert.equal(fs.existsSync(racePath), false);
+    assert.equal(fs.readFileSync(argsPath, "utf8").trim().split("\n").length, 2);
+    assert.equal(fs.statSync(runtimeDir).mode & 0o777, 0o700);
+    assert.equal(fs.existsSync(path.join(runtimeDir, "autostart.lock")), true);
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
+  }
 });
 
 test("record-and-replay stage hook records marketplace entry and stages plugin", () => {

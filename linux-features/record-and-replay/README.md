@@ -61,6 +61,10 @@ Cargo and copies the release binary into `resources/native/`, the staged plugin
   and recording HUD so bundles can show focused apps/windows during a demo.
 - Treats Chronicle/Skysight as screen/event memory, not microphone
   transcription.
+- Stages a cold-start hook that starts Skysight when Codex Desktop opens if
+  `features.chronicle = true` is set in `${CODEX_HOME:-$HOME/.codex}/config.toml`.
+  Set `CODEX_RECORD_REPLAY_CHRONICLE_AUTOSTART=0` to suppress that launcher
+  autostart.
 - See [docs/linux-chronicle-skysight.md](../../docs/linux-chronicle-skysight.md)
   for the runtime resource contract and verification steps.
 - Exposes the plugin as `Record & Replay` with MCP server `event-stream` and

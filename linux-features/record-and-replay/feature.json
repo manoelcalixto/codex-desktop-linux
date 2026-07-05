@@ -7,5 +7,12 @@
     "patchDescriptors": "./patch.js",
     "stageHook": "./stage.sh",
     "cleanupHook": "./cleanup.sh"
+  },
+  "runtimeHooks": {
+    "coldStart": {
+      "source": "chronicle-cold-start.sh",
+      "name": "chronicle-cold-start.sh",
+      "mode": "0755"
+    }
   }
 }
