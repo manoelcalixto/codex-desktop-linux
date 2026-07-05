@@ -642,6 +642,14 @@ function collectLinuxDesktopRouteAndNavigationPatches(extractedDir) {
     const filePath = path.join(webviewAssetsDir, candidate);
     const currentSource = fs.readFileSync(filePath, "utf8");
     let patchedSource = currentSource;
+    if (isSettingsSectionsMetadataBundleSource(currentSource)) {
+      try {
+        patchedSource = applyLinuxDesktopSettingsSectionsPatch(patchedSource);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        console.warn(`WARN: Optional Linux desktop settings section patch skipped for ${candidate}: ${message}`);
+      }
+    }
     if (isSettingsRouteBundleSource(currentSource)) {
       routeMatched = true;
       patchedSource = applyLinuxDesktopSettingsRoutePatch(patchedSource);
