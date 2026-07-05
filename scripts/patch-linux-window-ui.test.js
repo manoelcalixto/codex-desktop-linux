@@ -364,6 +364,30 @@ test("asset patch helpers match every file when passed a global regex", () => {
   }
 });
 
+test("asset patch helpers can narrow broad filename matches by content", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "codex-asset-content-"));
+  try {
+    const assetsDir = path.join(tempRoot, "webview", "assets");
+    fs.mkdirSync(assetsDir, { recursive: true });
+    fs.writeFileSync(path.join(assetsDir, "chunk-a.js"), "target marker", "utf8");
+    fs.writeFileSync(path.join(assetsDir, "chunk-b.js"), "unrelated marker", "utf8");
+
+    const result = patchAssetFiles(
+      tempRoot,
+      /^chunk-.*\.js$/,
+      (source) => source.replace("target", "patched"),
+      "missing content-filtered bundle",
+      { contentPattern: "target" },
+    );
+
+    assert.deepEqual(result, { matched: 1, changed: 1 });
+    assert.equal(fs.readFileSync(path.join(assetsDir, "chunk-a.js"), "utf8"), "patched marker");
+    assert.equal(fs.readFileSync(path.join(assetsDir, "chunk-b.js"), "utf8"), "unrelated marker");
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test("Linux safe monospace font stack patch prioritizes Linux mono families", () => {
   const source = "var e=`ui-monospace, \"SFMono-Regular\", Menlo, Consolas, monospace`;export{e as t};";
   const patched = applyPatchTwice(applyLinuxSafeMonospaceFontStackPatch, source);

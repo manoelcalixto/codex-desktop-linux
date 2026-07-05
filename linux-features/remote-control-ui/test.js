@@ -158,16 +158,38 @@ test("remote-control UI feature patches matching webview assets and records patc
           "function c(){let e=(0,s.c)(3),{data:n}=t(a,r(i)),c=o(`4114442250`);if(n?.config[`features.remote_connections`]===!0)return!0;let l=n?.config.features;if(typeof l!=`object`||!l||Array.isArray(l))return c;let u;return e[0]!==l||e[1]!==c?(u=Object.getOwnPropertyDescriptor(l,`remote_connections`)?.value===!0||c,e[0]=l,e[1]=c,e[2]=u):u=e[2],u}",
         );
         fs.writeFileSync(
+          path.join(
+            assetsDir,
+            "app-initial~app-main~remote-conversation-page~new-thread-panel-page~projects-index-page~app~fixture.js",
+          ),
+          "let bt=g(h,({get:e})=>{let t=e(Je,e(We)).data?.config,n=e(x,`4114442250`);if(t?.[`features.remote_connections`]===!0)return!0;let r=t?.features;return typeof r!=`object`||!r||Array.isArray(r)?n:Object.getOwnPropertyDescriptor(r,`remote_connections`)?.value===!0||n})",
+        );
+        fs.writeFileSync(
           path.join(assetsDir, "remote-control-connections-visibility-test.js"),
           "function p(){let e=t(`1042620455`),n=r(`remote_control_connections_state`);return!!e&&n?.available===!0}",
+        );
+        fs.writeFileSync(
+          path.join(
+            assetsDir,
+            "app-initial~app-main~remote-conversation-page~new-thread-panel-page~appgen-library-page~hot~fixture.js",
+          ),
+          "function Jb(){let e=(0,Zb.c)(3),[t]=ei(`remote_control_connections_state`),n=Uc(),r;return e[0]!==t||e[1]!==n?(r=Yb({remoteControlConnectionsState:t,slingshotEnabled:n}),e[0]=t,e[1]=n,e[2]=r):r=e[2],r}function Yb({remoteControlConnectionsState:e,slingshotEnabled:t}){return t&&(e?.available??!0)&&e?.accessRequired!==!0}",
         );
         fs.writeFileSync(
           path.join(assetsDir, "experimental-features-queries-test.js"),
           "var Z=`remote_control`;function Ie(e){return e.stage===`beta`?e.name!==`memories`&&e.name!==`multi_agent`&&e.name!==`plugins`&&e.name!==`plugin`&&e.name!==`realtime_conversation`&&e.name!==`remote_control`&&e.name!==`chronicle`&&e.name!==`workspace_dependencies`:!1}",
         );
         fs.writeFileSync(
+          path.join(assetsDir, "experimental-feature-visibility-test.js"),
+          "function i(e){return e.stage===`beta`?e.name!==`memories`&&e.name!==`multi_agent`&&e.name!==`plugins`&&e.name!==`plugin`&&e.name!==`remote_control`&&!e.name.startsWith(`realtime_`)&&e.name!==`chronicle`:!1}",
+        );
+        fs.writeFileSync(
           path.join(assetsDir, "nux-gate-test.js"),
           "function g(){let e=o(`2798711298`),t=n?.remote_control??!1;return e&&!t}",
+        );
+        fs.writeFileSync(
+          path.join(assetsDir, "codex-mobile-setup-dialog-test.js"),
+          "const title=`Codex mobile`;",
         );
         fs.writeFileSync(
           path.join(assetsDir, "app-main-test.js"),
@@ -186,11 +208,35 @@ test("remote-control UI feature patches matching webview assets and records patc
           /navigator\.userAgent\.includes\(`Linux`\)/,
         );
         assert.match(
+          fs.readFileSync(
+            path.join(
+              assetsDir,
+              "app-initial~app-main~remote-conversation-page~new-thread-panel-page~projects-index-page~app~fixture.js",
+            ),
+            "utf8",
+          ),
+          /e\(x,`4114442250`\)\|\|navigator\.userAgent\.includes\(`Linux`\)/,
+        );
+        assert.match(
           fs.readFileSync(path.join(assetsDir, "remote-control-connections-visibility-test.js"), "utf8"),
           /navigator\.userAgent\.includes\(`Linux`\)/,
         );
+        assert.match(
+          fs.readFileSync(
+            path.join(
+              assetsDir,
+              "app-initial~app-main~remote-conversation-page~new-thread-panel-page~appgen-library-page~hot~fixture.js",
+            ),
+            "utf8",
+          ),
+          /remoteControlConnectionsState:e,slingshotEnabled:t.+navigator\.userAgent\.includes\(`Linux`\)/,
+        );
         assert.doesNotMatch(
           fs.readFileSync(path.join(assetsDir, "experimental-features-queries-test.js"), "utf8"),
+          /e\.name!==`remote_control`/,
+        );
+        assert.doesNotMatch(
+          fs.readFileSync(path.join(assetsDir, "experimental-feature-visibility-test.js"), "utf8"),
           /e\.name!==`remote_control`/,
         );
         assert.match(

@@ -1616,7 +1616,8 @@ module.exports = [
   {
     id: "linux-remote-control-visibility",
     phase: "webview-asset",
-    pattern: /^(?:remote-control-connections-visibility|remote-connections-settings|use-plugin-install-flow)-.*\.js$/,
+    pattern: /\.js$/,
+    contentPattern: ["remoteControlConnectionsState", "`remote_control_connections_state`"],
     order: 20_120,
     ciPolicy: "optional",
     missingDescription: "remote-control connections visibility bundle",
@@ -1726,7 +1727,8 @@ module.exports = [
   {
     id: "linux-remote-mobile-projectless-remote-task",
     phase: "webview-asset",
-    pattern: /^(?:sidebar-project-groups|app-initial~app-main~worktree-init-v2-page~remote-conversation-page~pull-requests-page~plug~).*\.js$/,
+    pattern: /\.js$/,
+    contentPattern: "No owner repo found for remote task",
     order: 20_170,
     ciPolicy: "optional",
     missingDescription: "sidebar project groups bundle",

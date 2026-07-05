@@ -739,8 +739,11 @@ test("remote mobile control feature exposes opt-in main-bundle and webview patch
     );
     assert.ok(visibilityDescriptor);
     assert.equal(visibilityDescriptor.pattern.test("remote-connections-settings-fixture.js"), true);
-    assert.equal(visibilityDescriptor.pattern.test("use-plugin-install-flow-fixture.js"), true);
-    assert.equal(visibilityDescriptor.pattern.test("app-main-fixture.js"), false);
+    assert.equal(visibilityDescriptor.pattern.test("app-main-fixture.js"), true);
+    assert.deepEqual(visibilityDescriptor.contentPattern, [
+      "remoteControlConnectionsState",
+      "`remote_control_connections_state`",
+    ]);
 
     const statusGuardDescriptor = descriptors.find((descriptor) =>
       descriptor.id === "feature:remote-mobile-control:linux-remote-control-status-read-guard"

@@ -6,6 +6,19 @@ function warn(message, patchName) {
   console.warn(`WARN: ${message} — skipping ${patchName}`);
 }
 
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hasPatchedStatsigCall(source, gateId) {
+  const escapedGateId = escapeRegExp(gateId);
+  const escapedLinuxGate = escapeRegExp(LINUX_GATE);
+  return new RegExp(
+    `(?:[A-Za-z_$][\\w$]*\\(\`${escapedGateId}\`\\)|[A-Za-z_$][\\w$]*\\([A-Za-z_$][\\w$]*,\`${escapedGateId}\`\\))\\|\\|${escapedLinuxGate}`,
+    "u",
+  ).test(source);
+}
+
 function replaceOnce(source, needle, replacement, patchName) {
   if (source.includes(replacement)) {
     return source;
@@ -18,11 +31,15 @@ function replaceOnce(source, needle, replacement, patchName) {
 }
 
 function applyRemoteConnectionsVisibilityPatch(source) {
-  const patched = source.replace(
+  let patched = source.replace(
     /([A-Za-z_$][\w$]*)\(`4114442250`\)(?!\|\|navigator\.userAgent\.includes\(`Linux`\))/g,
     `($1(\`4114442250\`)||${LINUX_GATE})`,
   );
-  if (patched !== source || source.includes(`||${LINUX_GATE}`)) {
+  patched = patched.replace(
+    /([A-Za-z_$][\w$]*)\(([A-Za-z_$][\w$]*),`4114442250`\)(?!\|\|navigator\.userAgent\.includes\(`Linux`\))/g,
+    `($1($2,\`4114442250\`)||${LINUX_GATE})`,
+  );
+  if (patched !== source || hasPatchedStatsigCall(source, "4114442250")) {
     return patched;
   }
   warn("Could not find remote connections Statsig gate", "remote control UI remote connections visibility patch");
@@ -38,7 +55,12 @@ function applyRemoteControlConnectionsVisibilityPatch(source) {
     /return\s+([A-Za-z_$][\w$]*)&&\(([A-Za-z_$][\w$]*)\?\.available\?\?!0\)&&\2\?\.accessRequired!==!0(?!&&navigator\.userAgent\.includes\(`Linux`\))/g,
     `return ($1||${LINUX_GATE})&&($2?.available??!0)&&$2?.accessRequired!==!0`,
   );
-  if (patched !== source || source.includes(`||${LINUX_GATE}`)) {
+  if (
+    patched !== source ||
+    source.includes(`||${LINUX_GATE}`) ||
+    source.includes("remoteControlConnectionsState") &&
+      source.includes("navigator.userAgent.includes(`Linux`)")
+  ) {
     return patched;
   }
   if (
@@ -53,6 +75,12 @@ function applyRemoteControlConnectionsVisibilityPatch(source) {
     "remote control UI remote control connections visibility patch",
   );
   return source;
+}
+
+function isRemoteControlConnectionsVisibilityAsset(source) {
+  return source.includes("remoteControlConnectionsState") ||
+    /return!![A-Za-z_$][\w$]*&&[A-Za-z_$][\w$]*\?\.available===!0/u.test(source) ||
+    /return\s+[A-Za-z_$][\w$]*&&\([A-Za-z_$][\w$]*\?\.available\?\?!0\)&&[A-Za-z_$][\w$]*\?\.accessRequired!==!0/u.test(source);
 }
 
 function applyExperimentalFeaturesPatch(source) {
@@ -97,7 +125,8 @@ module.exports = {
       phase: "webview-asset",
       order: 20500,
       ciPolicy: "optional",
-      pattern: /^remote-connection-visibility-.*\.js$/,
+      pattern: /\.js$/,
+      contentPattern: "`4114442250`",
       missingDescription: "remote connection visibility bundle",
       skipDescription: "remote control UI remote connections visibility patch",
       apply: applyRemoteConnectionsVisibilityPatch,
@@ -107,7 +136,8 @@ module.exports = {
       phase: "webview-asset",
       order: 20510,
       ciPolicy: "optional",
-      pattern: /^(?:remote-control-connections-visibility|remote-connection-visibility)-.*\.js$/,
+      pattern: /\.js$/,
+      contentPattern: isRemoteControlConnectionsVisibilityAsset,
       missingDescription: "remote control connections visibility bundle",
       skipDescription: "remote control UI remote control connections visibility patch",
       apply: applyRemoteControlConnectionsVisibilityPatch,
@@ -117,7 +147,8 @@ module.exports = {
       phase: "webview-asset",
       order: 20520,
       ciPolicy: "optional",
-      pattern: /^experimental-features-queries-.*\.js$/,
+      pattern: /\.js$/,
+      contentPattern: "name!==`remote_control`",
       missingDescription: "experimental features query bundle",
       skipDescription: "remote control UI experimental features patch",
       apply: applyExperimentalFeaturesPatch,
@@ -127,7 +158,8 @@ module.exports = {
       phase: "webview-asset",
       order: 20530,
       ciPolicy: "optional",
-      pattern: /^nux-gate-.*\.js$/,
+      pattern: /^(?:nux-gate|codex-mobile-setup-dialog)-.*\.js$/,
+      contentPattern: ["`2798711298`", "Codex mobile"],
       missingDescription: "Codex mobile NUX gate bundle",
       skipDescription: "remote control UI mobile NUX gate patch",
       apply: (source) => applyMobileStatsigLinuxPatch(source, "remote control UI mobile NUX gate patch"),
