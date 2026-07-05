@@ -6,6 +6,7 @@ const {
 const {
   applyLinuxAppSunsetPatch,
   applyLinuxOpaqueWindowsDefaultPatch,
+  applyLinuxNativeWindowChromePatch,
   applyLinuxThreadSidePanelNativeTooltipPatch,
   applyLinuxTooltipWindowControlsCollisionPatch,
   applyLinuxWindowControlsSafeAreaPatch,
@@ -61,6 +62,16 @@ module.exports = [
     missingDescription: "window controls safe-area bundle",
     skipDescription: "Linux window controls safe-area patch",
     apply: applyLinuxWindowControlsSafeAreaPatch,
+  }),
+  webviewAssetPatch({
+    id: "linux-native-window-chrome",
+    phase: "webview-asset",
+    order: 1045,
+    ciPolicy: "optional",
+    pattern: /^app-initial~app-main~.*\.js$/,
+    missingDescription: "webview app shell chrome bundle",
+    skipDescription: "native Linux webview chrome patch",
+    apply: applyLinuxNativeWindowChromePatch,
   }),
   webviewAssetPatch({
     id: "linux-tooltip-window-controls-collision",

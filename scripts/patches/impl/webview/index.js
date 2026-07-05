@@ -221,6 +221,46 @@ function applyLinuxWindowControlsSafeAreaPatch(currentSource) {
   return currentSource;
 }
 
+function applyLinuxNativeWindowChromePatch(currentSource) {
+  let patchedSource = currentSource;
+
+  const linuxApplicationMenuChrome = "case`win32`:case`linux`:return`application-menu`";
+  const linuxNativeChrome = "case`win32`:return`application-menu`;case`linux`:return`native`";
+  const foundApplicationMenuChrome = patchedSource.includes(linuxApplicationMenuChrome);
+  const hasNativeChrome = patchedSource.includes(linuxNativeChrome);
+  if (foundApplicationMenuChrome) {
+    patchedSource = patchedSource.split(linuxApplicationMenuChrome).join(linuxNativeChrome);
+  }
+
+  const applicationMenuBrowserGatePattern =
+    /([A-Za-z_$][\w$]*)\.includes\(`win`\)\|\|([A-Za-z_$][\w$]*)\.includes\(`windows`\)\|\|\1\.includes\(`linux`\)\?([A-Za-z_$][\w$]*)\?\?([A-Za-z_$][\w$]*)\.applicationMenu:\4\.default/g;
+  const foundApplicationMenuBrowserGate = applicationMenuBrowserGatePattern.test(patchedSource);
+  applicationMenuBrowserGatePattern.lastIndex = 0;
+  patchedSource = patchedSource.replace(
+    applicationMenuBrowserGatePattern,
+    (_match, platformVar, userAgentVar, overrideVar, safeAreaVar) =>
+      `${platformVar}.includes(\`win\`)||${userAgentVar}.includes(\`windows\`)?${overrideVar}??${safeAreaVar}.applicationMenu:${safeAreaVar}.default`,
+  );
+
+  const nativeBrowserGatePattern =
+    /[A-Za-z_$][\w$]*\.includes\(`win`\)\|\|[A-Za-z_$][\w$]*\.includes\(`windows`\)\?[A-Za-z_$][\w$]*\?\?[A-Za-z_$][\w$]*\.applicationMenu:[A-Za-z_$][\w$]*\.default/;
+  const hasNativeBrowserGate = nativeBrowserGatePattern.test(patchedSource);
+  const recognizedChromeMapping = foundApplicationMenuChrome || hasNativeChrome;
+  const recognizedBrowserGate = foundApplicationMenuBrowserGate || hasNativeBrowserGate;
+  if (
+    !recognizedChromeMapping &&
+    !recognizedBrowserGate &&
+    currentSource.includes("codexWindowChrome") &&
+    currentSource.includes("application-menu")
+  ) {
+    console.warn(
+      "WARN: Could not find Linux window chrome mapping — skipping native Linux webview chrome patch",
+    );
+  }
+
+  return patchedSource;
+}
+
 function applyLinuxTooltipWindowControlsCollisionPatch(currentSource) {
   const currentPadding = `padding:{top:${LINUX_TOOLTIP_COLLISION_PADDING_TOP},right:8,bottom:8,left:8}`;
   const defaultMiddleware = "middleware:[a({mainAxis:C,crossAxis:t}),c({padding:8}),l({padding:8}),u({padding:8,apply({availableWidth:e,availableHeight:t,elements:n,rects:r})";
@@ -1860,6 +1900,7 @@ module.exports = {
   applyLinuxOpaqueWindowsDefaultPatch,
   applyLinuxThreadSidePanelNativeTooltipPatch,
   applyLinuxTooltipWindowControlsCollisionPatch,
+  applyLinuxNativeWindowChromePatch,
   applyLinuxWindowControlsSafeAreaPatch,
   applyLinuxSafeMonospaceFontStackPatch,
   applyLinuxFastModeModelGuardPatch,

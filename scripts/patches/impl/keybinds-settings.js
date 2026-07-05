@@ -1159,4 +1159,5 @@ module.exports = {
   patchKeybindsSettingsAssets,
   resolveLinuxDesktopSettingsAsset,
   resolveKeybindsSettingsAsset,
+  resolveSettingsAssetDependencies,
 };

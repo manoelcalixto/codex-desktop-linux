@@ -343,18 +343,24 @@ function applyLinuxNativeTitlebarPatch(currentSource) {
 
 function applyLinuxMenuPatch(currentSource) {
   const menuRegex = /process\.platform===`win32`&&([A-Za-z_$][\w$]*)\.removeMenu\(\),/g;
+  const linuxMenuPatch = (windowVar) =>
+    `process.platform===\`linux\`&&(${windowVar}.setMenuBarVisibility(!1),${windowVar}.removeMenu?.()),`;
   let patchedSource = currentSource
     .replace(
+      /process\.platform===`linux`&&([A-Za-z_$][\w$]*)\.removeMenu\(\),process\.platform===`win32`&&\1\.removeMenu\(\),/g,
+      (_match, windowVar) => `${linuxMenuPatch(windowVar)}process.platform===\`win32\`&&${windowVar}.removeMenu(),`,
+    )
+    .replace(
       /process\.platform===`linux`&&\(([A-Za-z_$][\w$]*)\.setMenuBarVisibility\(!1\),\1\.removeMenu\?\.\(\)\),process\.platform===`win32`&&\1\.removeMenu\(\),/g,
-      (_match, windowVar) => `process.platform===\`linux\`&&${windowVar}.removeMenu(),process.platform===\`win32\`&&${windowVar}.removeMenu(),`,
+      (_match, windowVar) => `${linuxMenuPatch(windowVar)}process.platform===\`win32\`&&${windowVar}.removeMenu(),`,
     )
     .replace(
       /process\.platform===`linux`&&([A-Za-z_$][\w$]*)\.setMenuBarVisibility\(!1\),process\.platform===`win32`&&\1\.removeMenu\(\),/g,
-      (_match, windowVar) => `process.platform===\`linux\`&&${windowVar}.removeMenu(),process.platform===\`win32\`&&${windowVar}.removeMenu(),`,
+      (_match, windowVar) => `${linuxMenuPatch(windowVar)}process.platform===\`win32\`&&${windowVar}.removeMenu(),`,
     );
   let patchedAny = patchedSource !== currentSource;
   patchedSource = patchedSource.replace(menuRegex, (match, windowVar, offset, source) => {
-    const linuxPatch = `process.platform===\`linux\`&&${windowVar}.removeMenu(),`;
+    const linuxPatch = linuxMenuPatch(windowVar);
     if (source.slice(Math.max(0, offset - linuxPatch.length), offset) === linuxPatch) {
       return match;
     }
@@ -363,7 +369,10 @@ function applyLinuxMenuPatch(currentSource) {
   });
 
   const hasWindowsRemoveMenu = /process\.platform===`win32`&&[A-Za-z_$][\w$]*\.removeMenu\(\),/.test(patchedSource);
-  const hasLinuxRemoveMenu = /process\.platform===`linux`&&([A-Za-z_$][\w$]*)\.removeMenu\(\),process\.platform===`win32`&&\1\.removeMenu\(\),/.test(patchedSource);
+  const hasLinuxRemoveMenu =
+    /process\.platform===`linux`&&\(([A-Za-z_$][\w$]*)\.setMenuBarVisibility\(!1\),\1\.removeMenu\?\.\(\)\),process\.platform===`win32`&&\1\.removeMenu\(\),/.test(
+      patchedSource,
+    );
   if (!patchedAny && hasWindowsRemoveMenu && !hasLinuxRemoveMenu) {
     console.warn("WARN: Could not find window menu visibility snippet — skipping menu patch");
   }
