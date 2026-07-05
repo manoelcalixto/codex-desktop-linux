@@ -30,7 +30,27 @@ function regexpTest(filenamePattern, name) {
   return filenamePattern.test(name);
 }
 
-function patchAssetFiles(extractedDir, filenamePattern, patchFn, missingWarnMessage) {
+function contentPatternTest(contentPattern, source) {
+  if (contentPattern == null) {
+    return true;
+  }
+  if (typeof contentPattern === "string") {
+    return source.includes(contentPattern);
+  }
+  if (contentPattern instanceof RegExp) {
+    contentPattern.lastIndex = 0;
+    return contentPattern.test(source);
+  }
+  if (Array.isArray(contentPattern)) {
+    return contentPattern.some((pattern) => contentPatternTest(pattern, source));
+  }
+  if (typeof contentPattern === "function") {
+    return contentPattern(source) !== false;
+  }
+  throw new Error("Asset content pattern must be a string, RegExp, array, or function");
+}
+
+function patchAssetFiles(extractedDir, filenamePattern, patchFn, missingWarnMessage, options = {}) {
   const webviewAssetsDir = path.join(extractedDir, "webview", "assets");
   if (!fs.existsSync(webviewAssetsDir)) {
     console.warn(
@@ -50,19 +70,28 @@ function patchAssetFiles(extractedDir, filenamePattern, patchFn, missingWarnMess
   }
 
   const pendingWrites = [];
+  let matched = 0;
   for (const candidate of candidates) {
     const filePath = path.join(webviewAssetsDir, candidate);
     const currentSource = fs.readFileSync(filePath, "utf8");
+    if (!contentPatternTest(options.contentPattern, currentSource)) {
+      continue;
+    }
+    matched += 1;
     const patchedSource = patchFn(currentSource);
     if (patchedSource !== currentSource) {
       pendingWrites.push({ filePath, patchedSource });
     }
   }
+  if (matched === 0) {
+    console.warn(missingWarnMessage);
+    return { matched: 0, changed: 0 };
+  }
   for (const { filePath, patchedSource } of pendingWrites) {
     fs.writeFileSync(filePath, patchedSource, "utf8");
   }
 
-  return { matched: candidates.length, changed: pendingWrites.length };
+  return { matched, changed: pendingWrites.length };
 }
 
 function readWebviewAsset(webviewAssetsDir, assetName) {

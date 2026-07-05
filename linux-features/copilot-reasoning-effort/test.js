@@ -37,7 +37,7 @@ function copilotReasoningEffortModelListFixture() {
 }
 
 function currentCopilotReasoningEffortModelListFixture() {
-  return "function Ge(){let t=`copilot`;return r.forEach(e=>{let n=t===`copilot`?[e.supportedReasoningEfforts.find(e=>e.reasoningEffort===`medium`)??{reasoningEffort:`medium`,description:`medium effort`}]:[...e.supportedReasoningEfforts];i.push({...e,supportedReasoningEfforts:n})})}";
+  return "function nMt({authMethod:e,enabledReasoningEfforts:r,includeUltraReasoningEffort:i,models:a}){let s=[];return a.forEach(n=>{let t=i?n.supportedReasoningEfforts:n.supportedReasoningEfforts.filter(({reasoningEffort:e})=>e!==`ultra`),a=(e===`copilot`?[t.find(e=>e.reasoningEffort===`medium`)??{reasoningEffort:`medium`,description:`medium effort`}]:t).filter(({reasoningEffort:e})=>pq(e)&&r.has(e)),o={...n,supportedReasoningEfforts:a};s.push(o)}),{models:s}}";
 }
 
 function copilotReasoningEffortUiFixture() {
@@ -117,8 +117,8 @@ test("keeps all model reasoning efforts for current Copilot model query chunks",
     currentCopilotReasoningEffortModelListFixture(),
   );
 
-  assert.match(patched, /let n=\[\.\.\.e\.supportedReasoningEfforts\]/);
-  assert.doesNotMatch(patched, /t===`copilot`\?\[/);
+  assert.match(patched, /a=t\.filter\(\(\{reasoningEffort:e\}\)=>pq\(e\)&&r\.has\(e\)\)/);
+  assert.doesNotMatch(patched, /e===`copilot`\?\[/);
   assert.doesNotMatch(patched, /description:`medium effort`/);
 });
 
@@ -156,6 +156,8 @@ test("feature descriptor loader exposes the Copilot webview asset patches only w
       descriptors.map((descriptor) => descriptor.phase),
       ["webview-asset", "webview-asset", "webview-asset"],
     );
+    assert.equal(copilotReasoningEffortSettingsFixture().includes(descriptors[0].contentPattern), true);
+    assert.equal(descriptors[1].contentPattern(currentCopilotReasoningEffortModelListFixture()), true);
     assert.ok(descriptors.every((descriptor) => descriptor.ciPolicy === "optional"));
   });
 });
@@ -180,7 +182,7 @@ test("enabled feature descriptors patch matching webview assets", () => {
       );
       assert.match(
         readAsset(extractedDir, "model-queries-fixture.js"),
-        /\[\.\.\.e\.supportedReasoningEfforts\]/,
+        /a=t\.filter\(\(\{reasoningEffort:e\}\)=>pq\(e\)&&r\.has\(e\)\)/,
       );
       assert.match(
         readAsset(extractedDir, "index-fixture.js"),

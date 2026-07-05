@@ -58,13 +58,14 @@ test("api-key-service-tier stays disabled until listed in features.json", () => 
   });
 });
 
-test("descriptor is optional and targets app main webview chunks", () => {
+test("descriptor is optional and targets service tier model chunks by content", () => {
   assert.deepEqual(
     descriptors.map((descriptor) => [descriptor.id, descriptor.phase, descriptor.ciPolicy]),
     [["api-key-service-tier-ui", "webview-asset", "optional"]],
   );
-  assert.equal(descriptors[0].pattern.test("app-initial~app-main~onboarding-page-abc.js"), true);
-  assert.equal(descriptors[0].pattern.test("settings-page-abc.js"), false);
+  assert.equal(descriptors[0].pattern.test("settings-page-abc.js"), true);
+  assert.equal(descriptors[0].contentPattern("defaultServiceTier list-models-for-host"), true);
+  assert.equal(descriptors[0].contentPattern("featureRequirements?.fast_mode list-models-for-host"), false);
 });
 
 test("service tier auth gate allows API-key hosts while preserving ChatGPT requirements", () => {
@@ -75,6 +76,13 @@ test("service tier auth gate allows API-key hosts while preserving ChatGPT requi
 
   assert.match(patched, /d=!u&&\(a\?c!=null&&c\?\.requirements\?\.featureRequirements\?\.fast_mode!==!1:o===`apikey`\)/);
   assert.doesNotMatch(patched, /d=a&&!u&&c!=null/);
+});
+
+test("service tier auth gate recognizes current already-patched chunks", () => {
+  const source =
+    "function auth(){let d=e.authMethod??null;return d}function ZMt(e){let t=(0,QMt.c)(6),n=po(qW),r=e?.hostId??n,i=OK(r),a=i?.authMethod===`chatgpt`,o=i?.authMethod??null,s;t[0]!==r||t[1]!==o?(s={authMethod:o,hostId:r},t[0]=r,t[1]=o,t[2]=s):s=t[2];let{data:c,isPending:l}=mo(AG,s),u=!!i?.isLoading||a&&l,d=!u&&(a?c!=null&&c?.requirements?.featureRequirements?.fast_mode!==!1:o===`apikey`),f;return t[3]!==u||t[4]!==d?(f={isServiceTierAllowed:d,isLoading:u},t[3]=u,t[4]=d,t[5]=f):f=t[5],f}";
+
+  assert.equal(applyApiKeyServiceTierGatePatch(source), source);
 });
 
 test("model list entries are marked only when loaded for API-key hosts", () => {
