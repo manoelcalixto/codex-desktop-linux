@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 
+const CHILD_PROCESS_EXPR = "require(`node:child_process`)";
+
 function requireName(source, moduleName) {
   const escaped = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return source.match(new RegExp(`([A-Za-z_$][\\w$]*)=require\\([\\\`'"]${escaped}[\\\`'"]\\)(?!\\s*\\.)`))?.[1] ?? null;
@@ -161,12 +163,10 @@ function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
     return currentSource;
   }
 
-  const childProcessVar =
-    requireName(currentSource, "node:child_process") ?? requireName(currentSource, "child_process");
   const fsVar = requireName(currentSource, "node:fs") ?? requireName(currentSource, "fs");
   const pathVar = requireName(currentSource, "node:path") ?? requireName(currentSource, "path");
-  if (childProcessVar == null || fsVar == null || pathVar == null) {
-    console.warn("WARN: Could not find updater bridge module bindings - skipping Linux updater bridge patch");
+  if (fsVar == null || pathVar == null) {
+    console.warn("WARN: Could not find updater bridge fs/path module bindings - skipping Linux updater bridge patch");
     return currentSource;
   }
 
@@ -182,13 +182,13 @@ function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
     }
     patchedSource = patchedSource.replace(
       bootstrapMatch[0],
-      `${buildBootstrapBridgeSource({ childProcessVar, fsVar, pathVar })};${bootstrapMatch[0]}`,
+      `${buildBootstrapBridgeSource({ childProcessVar: CHILD_PROCESS_EXPR, fsVar, pathVar })};${bootstrapMatch[0]}`,
     );
   }
 
   patchedSource = migrateLinuxUpdaterBridgeSource(patchedSource);
-  patchedSource = replaceInstallAfterQuitSource(patchedSource, childProcessVar);
-  patchedSource = replaceRunUpdateManagerSource(patchedSource, childProcessVar);
+  patchedSource = replaceInstallAfterQuitSource(patchedSource, CHILD_PROCESS_EXPR);
+  patchedSource = replaceRunUpdateManagerSource(patchedSource, CHILD_PROCESS_EXPR);
 
   const destructureRegex =
     /let\{startedAtMs:([A-Za-z_$][\w$]*),buildFlavor:([A-Za-z_$][\w$]*),desktopSentry:([A-Za-z_$][\w$]*),sparkleManager:([A-Za-z_$][\w$]*),setSparkleBridgeHandlers:([A-Za-z_$][\w$]*),setSecondInstanceArgsHandler:([A-Za-z_$][\w$]*)\}=([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\(\),/;
@@ -258,12 +258,10 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
     return currentSource;
   }
 
-  const childProcessVar =
-    requireName(currentSource, "node:child_process") ?? requireName(currentSource, "child_process");
   const fsVar = requireName(currentSource, "node:fs") ?? requireName(currentSource, "fs");
   const pathVar = requireName(currentSource, "node:path") ?? requireName(currentSource, "path");
-  if (childProcessVar == null || fsVar == null || pathVar == null) {
-    console.warn("WARN: Could not find updater bridge module bindings - skipping Linux updater bridge patch");
+  if (fsVar == null || pathVar == null) {
+    console.warn("WARN: Could not find updater bridge fs/path module bindings - skipping Linux updater bridge patch");
     return currentSource;
   }
 
@@ -272,7 +270,7 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
     const classNeedle = "var tD=class{";
     patchedSource = patchedSource.replace(
       classNeedle,
-      `${buildBridgeSource({ childProcessVar, fsVar, pathVar })};${classNeedle}`,
+      `${buildBridgeSource({ childProcessVar: CHILD_PROCESS_EXPR, fsVar, pathVar })};${classNeedle}`,
     );
   }
   if (!patchedSource.includes("function codexLinuxGetElectronModule(")) {
@@ -286,7 +284,7 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
     "async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{let e=codexLinuxGetElectronModule();if(!e)return;await e.dialog?.showMessageBox({type:`info`,buttons:[`OK`],defaultId:0,noLink:!0,message:codexLinuxMessage,detail:codexLinuxDetail})}catch{}}",
   );
   if (!patchedSource.includes("function codexLinuxQuitForUpdate(")) {
-    const quitSource = `${buildInstallAfterQuitSource(childProcessVar)}${buildQuitForUpdateSource(true)}`;
+    const quitSource = `${buildInstallAfterQuitSource(CHILD_PROCESS_EXPR)}${buildQuitForUpdateSource(true)}`;
     const runManagerNeedle = "function codexLinuxRunUpdateManager(";
     if (patchedSource.includes(runManagerNeedle)) {
       patchedSource = patchedSource.replace(runManagerNeedle, `${quitSource}${runManagerNeedle}`);
@@ -295,7 +293,7 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
     if (!patchedSource.includes("function codexLinuxInstallAfterQuit(")) {
       patchedSource = patchedSource.replace(
         "function codexLinuxQuitForUpdate(",
-        `${buildInstallAfterQuitSource(childProcessVar)}function codexLinuxQuitForUpdate(`,
+        `${buildInstallAfterQuitSource(CHILD_PROCESS_EXPR)}function codexLinuxQuitForUpdate(`,
       );
     }
     patchedSource = patchedSource
@@ -309,9 +307,9 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
       );
   }
   if (patchedSource.includes("function codexLinuxInstallAfterQuit(")) {
-    patchedSource = replaceInstallAfterQuitSource(patchedSource, childProcessVar);
+    patchedSource = replaceInstallAfterQuitSource(patchedSource, CHILD_PROCESS_EXPR);
   }
-  patchedSource = replaceRunUpdateManagerSource(patchedSource, childProcessVar);
+  patchedSource = replaceRunUpdateManagerSource(patchedSource, CHILD_PROCESS_EXPR);
   patchedSource = patchedSource.replace(
     "this.setInstallProgressPercent(null),this.options.onInstallUpdatesRequested?.();return",
     "this.setInstallProgressPercent(null),codexLinuxQuitForUpdate();return",
