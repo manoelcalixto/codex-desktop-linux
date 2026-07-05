@@ -3,7 +3,7 @@ const path = require("path");
 
 function requireName(source, moduleName) {
   const escaped = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return source.match(new RegExp(`([A-Za-z_$][\\w$]*)=require\\([\\\`'"]${escaped}[\\\`'"]\\)`))?.[1] ?? null;
+  return source.match(new RegExp(`([A-Za-z_$][\\w$]*)=require\\([\\\`'"]${escaped}[\\\`'"]\\)(?!\\s*\\.)`))?.[1] ?? null;
 }
 
 function buildInstallAfterQuitSource(childProcessVar) {
@@ -14,6 +14,16 @@ function replaceInstallAfterQuitSource(source, childProcessVar) {
   const pattern =
     /function codexLinuxInstallAfterQuit\(\)\{try\{let e=[A-Za-z_$][\w$]*\.spawn\(`\/bin\/sh`,\[`-c`,[^]*?e\.unref\?\.\(\)\}catch\{\}\}/;
   return source.replace(pattern, buildInstallAfterQuitSource(childProcessVar));
+}
+
+function buildRunUpdateManagerSource(childProcessVar) {
+  return `function codexLinuxRunUpdateManager(e){return new Promise((t,n)=>{${childProcessVar}.execFile(codexLinuxUpdateManagerPath(),e,{encoding:\`utf8\`,windowsHide:!0},(e,r,i)=>{if(e){e.stdout=r,e.stderr=i,n(e);return}t({stdout:r??\`\`,stderr:i??\`\`})})})}`;
+}
+
+function replaceRunUpdateManagerSource(source, childProcessVar) {
+  const pattern =
+    /function codexLinuxRunUpdateManager\(e\)\{return new Promise\(\(t,n\)=>\{[A-Za-z_$][\w$]*\.execFile\(codexLinuxUpdateManagerPath\(\),e,\{encoding:`utf8`,windowsHide:!0\},\(e,r,i\)=>\{if\(e\)\{e\.stdout=r,e\.stderr=i,n\(e\);return\}t\(\{stdout:r\?\?``,stderr:i\?\?``\}\)\}\)\}\)\}/;
+  return source.replace(pattern, buildRunUpdateManagerSource(childProcessVar));
 }
 
 function replaceAfter(source, anchor, search, replacement) {
@@ -42,7 +52,7 @@ function buildBridgeSource({ childProcessVar, fsVar, pathVar }) {
     `async function codexLinuxShowUpdateMessage(codexLinuxMessage,codexLinuxDetail){try{let e=codexLinuxGetElectronModule();if(!e)return;await e.dialog?.showMessageBox({type:\`info\`,buttons:[\`OK\`],defaultId:0,noLink:!0,message:codexLinuxMessage,detail:codexLinuxDetail})}catch{}}`;
   const installAfterQuit = buildInstallAfterQuitSource(childProcessVar);
   const quitForUpdate = buildQuitForUpdateSource(true);
-  return `${buildElectronResolverSource()}function codexLinuxUpdateStatePath(){let e=process.env.XDG_STATE_HOME||process.env.HOME&&(0,${pathVar}.join)(process.env.HOME,\`.local\`,\`state\`);return e?(0,${pathVar}.join)(e,\`codex-update-manager\`,\`state.json\`):null}function codexLinuxReadUpdateState(){let e=codexLinuxUpdateStatePath();if(!e||!${fsVar}.existsSync(e))return null;try{let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));return t&&typeof t===\`object\`&&!Array.isArray(t)?t:null}catch{return null}}function codexLinuxUpdateLifecycleState(e){switch(e){case\`ready_to_install\`:case\`waiting_for_app_exit\`:return\`ready\`;case\`installing\`:return\`installing\`;case\`checking_upstream\`:case\`update_detected\`:case\`downloading_dmg\`:case\`preparing_workspace\`:case\`patching_app\`:case\`building_package\`:return\`checking\`;default:return\`idle\`}}function codexLinuxUpdateManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}${showUpdateMessage}${installAfterQuit}${quitForUpdate}function codexLinuxRunUpdateManager(e){return new Promise((t,n)=>{${childProcessVar}.execFile(codexLinuxUpdateManagerPath(),e,{encoding:\`utf8\`,windowsHide:!0},(e,r,i)=>{if(e){e.stdout=r,e.stderr=i,n(e);return}t({stdout:r??\`\`,stderr:i??\`\`})})})}async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([\`--help\`])}async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}`;
+  return `${buildElectronResolverSource()}function codexLinuxUpdateStatePath(){let e=process.env.XDG_STATE_HOME||process.env.HOME&&(0,${pathVar}.join)(process.env.HOME,\`.local\`,\`state\`);return e?(0,${pathVar}.join)(e,\`codex-update-manager\`,\`state.json\`):null}function codexLinuxReadUpdateState(){let e=codexLinuxUpdateStatePath();if(!e||!${fsVar}.existsSync(e))return null;try{let t=JSON.parse(${fsVar}.readFileSync(e,\`utf8\`));return t&&typeof t===\`object\`&&!Array.isArray(t)?t:null}catch{return null}}function codexLinuxUpdateLifecycleState(e){switch(e){case\`ready_to_install\`:case\`waiting_for_app_exit\`:return\`ready\`;case\`installing\`:return\`installing\`;case\`checking_upstream\`:case\`update_detected\`:case\`downloading_dmg\`:case\`preparing_workspace\`:case\`patching_app\`:case\`building_package\`:return\`checking\`;default:return\`idle\`}}function codexLinuxUpdateManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}${showUpdateMessage}${installAfterQuit}${quitForUpdate}${buildRunUpdateManagerSource(childProcessVar)}async function codexLinuxProbeUpdateManager(){await codexLinuxRunUpdateManager([\`--help\`])}async function codexLinuxRefreshUpdateState(){return codexLinuxReadUpdateState()}`;
 }
 
 function migrateLinuxUpdaterBridgeSource(source) {
@@ -177,6 +187,8 @@ function applyCurrentBootstrapUpdaterBridgePatch(currentSource) {
   }
 
   patchedSource = migrateLinuxUpdaterBridgeSource(patchedSource);
+  patchedSource = replaceInstallAfterQuitSource(patchedSource, childProcessVar);
+  patchedSource = replaceRunUpdateManagerSource(patchedSource, childProcessVar);
 
   const destructureRegex =
     /let\{startedAtMs:([A-Za-z_$][\w$]*),buildFlavor:([A-Za-z_$][\w$]*),desktopSentry:([A-Za-z_$][\w$]*),sparkleManager:([A-Za-z_$][\w$]*),setSparkleBridgeHandlers:([A-Za-z_$][\w$]*),setSecondInstanceArgsHandler:([A-Za-z_$][\w$]*)\}=([A-Za-z_$][\w$]*)\.([A-Za-z_$][\w$]*)\(\),/;
@@ -299,6 +311,7 @@ function applyLinuxAppUpdaterBridgePatch(currentSource) {
   if (patchedSource.includes("function codexLinuxInstallAfterQuit(")) {
     patchedSource = replaceInstallAfterQuitSource(patchedSource, childProcessVar);
   }
+  patchedSource = replaceRunUpdateManagerSource(patchedSource, childProcessVar);
   patchedSource = patchedSource.replace(
     "this.setInstallProgressPercent(null),this.options.onInstallUpdatesRequested?.();return",
     "this.setInstallProgressPercent(null),codexLinuxQuitForUpdate();return",

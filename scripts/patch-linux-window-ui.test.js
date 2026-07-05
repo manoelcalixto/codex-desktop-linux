@@ -144,6 +144,9 @@ const {
   summarizePatchReport,
 } = require("./lib/patch-report.js");
 const {
+  requireName,
+} = require("./patches/lib/minified-js.js");
+const {
   applyBrowserAnnotationScreenshotPatch,
   applyLocalEnvironmentActionModalDraftPatch,
   applyPersistentRateLimitFooterPatch,
@@ -259,6 +262,16 @@ function evaluateAutomationSchedule(source, now, options) {
   );
   return context.result;
 }
+
+test("requireName ignores chained require calls", () => {
+  const source = [
+    "function open(){let __codexChild=require(`node:child_process`).spawn(`xdg-open`,[])}",
+    "let cp=require(`node:child_process`),fs=require(`node:fs`);",
+  ].join("");
+
+  assert.equal(requireName(source, "node:child_process"), "cp");
+  assert.equal(requireName("let child=require(`node:child_process`).spawn(`x`,[])", "node:child_process"), null);
+});
 
 test("automation schedule patch honors multiple BYHOUR values", () => {
   const patched = applyPatchTwice(applyAutomationScheduleMultiTimePatch, automationScheduleBundleFixture());
@@ -5386,6 +5399,26 @@ test("migrates already-patched Linux updater bridge to probe without mutating re
   assert.match(migrated, /async function codexLinuxRefreshUpdateState\(\)\{return codexLinuxReadUpdateState\(\)\}/);
   assert.match(migrated, /await codexLinuxProbeUpdateManager\(\),e\(\)/);
   assert.doesNotMatch(migrated, /codexLinuxRunUpdateManager\(\[`status`,`--json`\]\)/);
+});
+
+test("migrates already-patched Linux updater bridge away from scoped child_process aliases", () => {
+  const source =
+    "function open(){let __codexChild=require(`node:child_process`).spawn(`xdg-open`,[])}" +
+    currentBootstrapUpdaterBundleFixture();
+  const patched = applyLinuxAppUpdaterBridgePatch(source);
+  const broken = patched
+    .replace(/u\.spawn\(`\/bin\/sh`/, "__codexChild.spawn(`/bin/sh`")
+    .replace(/u\.execFile\(codexLinuxUpdateManagerPath\(\),e/, "__codexChild.execFile(codexLinuxUpdateManagerPath(),e");
+
+  assert.match(broken, /__codexChild\.spawn\(`\/bin\/sh`/);
+  assert.match(broken, /__codexChild\.execFile\(codexLinuxUpdateManagerPath\(\),e/);
+
+  const migrated = applyLinuxAppUpdaterBridgePatch(broken);
+
+  assert.match(migrated, /u\.spawn\(`\/bin\/sh`/);
+  assert.match(migrated, /u\.execFile\(codexLinuxUpdateManagerPath\(\),e/);
+  assert.doesNotMatch(migrated, /__codexChild\.spawn\(`\/bin\/sh`/);
+  assert.doesNotMatch(migrated, /__codexChild\.execFile\(codexLinuxUpdateManagerPath\(\),e/);
 });
 
 test("migrates an already-patched Linux updater bridge to quit before install", () => {

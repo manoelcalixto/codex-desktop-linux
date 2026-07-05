@@ -60,7 +60,7 @@ function useUserWritableNpmPrefixForInstallRuntime(source) {
 
 function agentWorkspaceBridgeWithWorkspaceStartSource(args) {
   return useUserWritableNpmPrefixForInstallRuntime(AGENT_WORKSPACE_BRIDGE_SOURCE_TEMPLATE)
-    .split("__CODEX_CHILD_PROCESS_VAR__").join(args.childProcessVar)
+    .split("__CODEX_CHILD_PROCESS_VAR__").join(args.childProcessExpr)
     .split("__CODEX_FS_VAR__").join(args.fsVar)
     .split("__CODEX_PATH_VAR__").join(args.pathVar);
 }
@@ -137,15 +137,15 @@ function replaceAgentWorkspaceActionBridge(currentSource, actionBridgeSource) {
 
 function applyAgentWorkspaceMainBridgePatch(currentSource) {
   const patchName = "agent workspace main bridge patch";
+  const childProcessExpr = "require(`node:child_process`)";
   if (currentSource.includes('"linux-agent-workspace":async')) {
-    const childProcessVar = requireName(currentSource, "node:child_process");
     const fsVar = requireName(currentSource, "node:fs");
     const pathVar = requireName(currentSource, "node:path");
-    if (childProcessVar == null || fsVar == null || pathVar == null) {
-      warn("Could not find Node module aliases for agent workspace bridge upgrade", patchName);
+    if (fsVar == null || pathVar == null) {
+      warn("Could not find Node fs/path aliases for agent workspace bridge upgrade", patchName);
       return currentSource;
     }
-    const args = { childProcessVar, fsVar, pathVar };
+    const args = { childProcessExpr, fsVar, pathVar };
     let patchedSource = currentSource;
     patchedSource = ensureAgentWorkspaceBridgeEntry(patchedSource, agentWorkspaceAppPickerBridgeSource(args));
     patchedSource = ensureAgentWorkspaceBridgeEntry(patchedSource, agentWorkspaceMountPickerBridgeSource());
@@ -154,11 +154,10 @@ function applyAgentWorkspaceMainBridgePatch(currentSource) {
     return replaceAgentWorkspaceActionBridge(patchedSource, agentWorkspaceActionBridgeSource(args));
   }
 
-  const childProcessVar = requireName(currentSource, "node:child_process");
   const fsVar = requireName(currentSource, "node:fs");
   const pathVar = requireName(currentSource, "node:path");
-  if (childProcessVar == null || fsVar == null || pathVar == null) {
-    warn("Could not find Node module aliases", patchName);
+  if (fsVar == null || pathVar == null) {
+    warn("Could not find Node fs/path aliases", patchName);
     return currentSource;
   }
 
@@ -170,7 +169,7 @@ function applyAgentWorkspaceMainBridgePatch(currentSource) {
 
   return currentSource.replace(
     handlerNeedle,
-    `${agentWorkspaceBridgeWithWorkspaceStartSource({ childProcessVar, fsVar, pathVar })},${handlerNeedle}`,
+    `${agentWorkspaceBridgeWithWorkspaceStartSource({ childProcessExpr, fsVar, pathVar })},${handlerNeedle}`,
   );
 }
 
