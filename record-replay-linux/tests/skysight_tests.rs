@@ -192,11 +192,16 @@ fn skysight_snapshot_creates_segment_directory_and_rollup_resources() {
         .is_some_and(|name| name.contains("-6h-")));
     assert_eq!(status.exclusions_count, 0);
     assert!(!status.capture_capability_notes.is_empty());
+    assert!(status.ocr_backend.as_deref().is_some_and(|backend| {
+        matches!(
+            backend,
+            "rapidocr-python" | "paddleocr-python" | "tesseract-cli" | "auto"
+        )
+    }));
     assert!(status
-        .ocr_backend
+        .ocr_language
         .as_deref()
-        .is_some_and(|backend| matches!(backend, "rapidocr-python" | "tesseract-cli" | "auto")));
-    assert_eq!(status.ocr_language.as_deref(), Some("eng"));
+        .is_some_and(|language| matches!(language, "eng" | "en")));
     assert!(status
         .ocr_status
         .as_deref()
@@ -314,6 +319,56 @@ fn skysight_status_reports_fake_tesseract_ocr_readiness() {
     restore_env("CODEX_SKYSIGHT_OCR_BACKEND", old_backend);
     restore_env("CODEX_SKYSIGHT_TESSERACT_PATH", old_tesseract);
     restore_env("CODEX_SKYSIGHT_OCR_LANG", old_lang);
+}
+
+#[test]
+fn skysight_status_reports_fake_paddleocr_readiness() {
+    let _guard = env_guard();
+    let old_ocr = env::var_os("CODEX_SKYSIGHT_OCR");
+    let old_backend = env::var_os("CODEX_SKYSIGHT_OCR_BACKEND");
+    let old_paddleocr = env::var_os("CODEX_SKYSIGHT_PADDLEOCR_PYTHON");
+    let old_lang = env::var_os("CODEX_SKYSIGHT_PADDLEOCR_LANG");
+    let old_device = env::var_os("CODEX_SKYSIGHT_PADDLEOCR_DEVICE");
+
+    let temp = tempfile::tempdir().unwrap();
+    let fake_python = temp.path().join("fake-python");
+    fs::write(
+        &fake_python,
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+echo '__CODEX_PADDLEOCR_JSON__{"paddleocr":"3.7.0","paddle":"3.0.0","cuda_compiled":true,"cuda_device_count":1}'
+"#,
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&fake_python).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&fake_python, permissions).unwrap();
+
+    env::set_var("CODEX_SKYSIGHT_OCR", "enabled");
+    env::set_var("CODEX_SKYSIGHT_OCR_BACKEND", "paddleocr");
+    env::set_var("CODEX_SKYSIGHT_PADDLEOCR_PYTHON", &fake_python);
+    env::set_var("CODEX_SKYSIGHT_PADDLEOCR_LANG", "pt");
+    env::set_var("CODEX_SKYSIGHT_PADDLEOCR_DEVICE", "gpu:0");
+
+    let paths = SkysightPaths::new(temp.path().join("runtime"), temp.path().join("resources"));
+    let status = skysight_status(&paths).unwrap();
+    let value = serde_json::to_value(status).unwrap();
+
+    assert_eq!(value["ocr_enabled"], true);
+    assert_eq!(value["ocr_available"], true);
+    assert_eq!(value["ocr_mode"], "enabled");
+    assert_eq!(value["ocr_status"], "available");
+    assert_eq!(value["ocr_backend"], "paddleocr-python");
+    assert_eq!(value["ocr_language"], "pt");
+    assert!(value["ocr_backend_version"]
+        .as_str()
+        .is_some_and(|version| version.contains("paddleocr 3.7.0")));
+
+    restore_env("CODEX_SKYSIGHT_OCR", old_ocr);
+    restore_env("CODEX_SKYSIGHT_OCR_BACKEND", old_backend);
+    restore_env("CODEX_SKYSIGHT_PADDLEOCR_PYTHON", old_paddleocr);
+    restore_env("CODEX_SKYSIGHT_PADDLEOCR_LANG", old_lang);
+    restore_env("CODEX_SKYSIGHT_PADDLEOCR_DEVICE", old_device);
 }
 
 #[test]

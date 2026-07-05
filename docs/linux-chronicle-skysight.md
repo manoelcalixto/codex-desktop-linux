@@ -85,31 +85,50 @@ The backend boundary should stay pluggable. Current and future OCR stacks:
   on lightweight desktop screenshot memory than the options above.
 
 The practical target is therefore: keep `auto` as the default, prefer
-`rapidocr-python` when available, preserve `tesseract-cli` as fallback, and
-never make model downloads or GPU frameworks mandatory for the base Chronicle
-feature.
+`rapidocr-python` when available, use installed `paddleocr-python` as a heavier
+GPU-capable/high-accuracy local OCR fallback before `tesseract-cli`, and never
+make model downloads or GPU frameworks mandatory for the base Chronicle feature.
 
 Runtime controls:
 
 ```bash
 CODEX_SKYSIGHT_OCR=auto|enabled|required|disabled
 CODEX_CHRONICLE_OCR=auto|enabled|required|disabled
-CODEX_SKYSIGHT_OCR_BACKEND=auto|rapidocr|tesseract
-CODEX_CHRONICLE_OCR_BACKEND=auto|rapidocr|tesseract
+CODEX_SKYSIGHT_OCR_BACKEND=auto|rapidocr|paddleocr|tesseract
+CODEX_CHRONICLE_OCR_BACKEND=auto|rapidocr|paddleocr|tesseract
 CODEX_SKYSIGHT_RAPIDOCR_PYTHON=/path/to/python3
 CODEX_CHRONICLE_RAPIDOCR_PYTHON=/path/to/python3
 CODEX_SKYSIGHT_RAPIDOCR_LANG=ch
 CODEX_CHRONICLE_RAPIDOCR_LANG=ch
+CODEX_SKYSIGHT_PADDLEOCR_PYTHON=/path/to/python3
+CODEX_CHRONICLE_PADDLEOCR_PYTHON=/path/to/python3
+CODEX_SKYSIGHT_PADDLEOCR_LANG=en
+CODEX_CHRONICLE_PADDLEOCR_LANG=en
+CODEX_SKYSIGHT_PADDLEOCR_DEVICE=gpu:0
+CODEX_CHRONICLE_PADDLEOCR_DEVICE=gpu:0
+CODEX_SKYSIGHT_PADDLEOCR_ENGINE=paddle_static
+CODEX_CHRONICLE_PADDLEOCR_ENGINE=paddle_static
+CODEX_SKYSIGHT_PADDLEOCR_VERSION=PP-OCRv5
+CODEX_CHRONICLE_PADDLEOCR_VERSION=PP-OCRv5
 CODEX_SKYSIGHT_TESSERACT_PATH=/path/to/tesseract
 CODEX_CHRONICLE_TESSERACT_PATH=/path/to/tesseract
 CODEX_SKYSIGHT_OCR_LANG=eng
 CODEX_SKYSIGHT_OCR_PSM=11
-CODEX_SKYSIGHT_OCR_TIMEOUT_MS=10000
+CODEX_SKYSIGHT_OCR_TIMEOUT_MS=60000
+CODEX_CHRONICLE_OCR_TIMEOUT_MS=60000
 ```
 
 For RapidOCR, the selected Python environment must be able to import
 `rapidocr`, `onnxruntime`, and OpenCV. On minimal Debian/Ubuntu containers this
 may also require the system package that provides `libGL.so.1`.
+
+For PaddleOCR, the selected Python environment must be able to import
+`paddleocr` and a compatible PaddlePaddle runtime. GPU acceleration is selected
+through `CODEX_SKYSIGHT_PADDLEOCR_DEVICE`, for example `gpu:0`; keep this
+backend dependency-gated because PaddleOCR may download model weights on first
+inference. PaddleOCR can take longer than the 10s default OCR timeout during
+startup and model warmup, so set `CODEX_SKYSIGHT_OCR_TIMEOUT_MS=60000` for
+PaddleOCR-backed Chronicle sessions.
 
 ## Verification After Rebuild
 
