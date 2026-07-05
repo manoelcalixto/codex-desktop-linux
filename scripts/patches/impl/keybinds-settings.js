@@ -626,12 +626,13 @@ function collectLinuxDesktopRouteAndNavigationPatches(extractedDir) {
   }
 
   // Newer builds split the lazy settings route map out of `app-main-*.js`/`index-*.js`
-  // into hashed concatenation chunks named `app-initial~app-main~*.js` (e.g. the
-  // automations-page chunk), while the icon/navigation metadata stays in
-  // `settings-page-*.js`. Scan all three so the route map is always discoverable.
+  // into hashed concatenation chunks. Some keep the `app-initial~app-main~*`
+  // prefix; others are settings-page chunks without that prefix. The
+  // icon/navigation metadata still lives in a settings-page chunk, so scan any
+  // hashed settings-page JS file plus the legacy app-main/index candidates.
   const candidates = fs
     .readdirSync(webviewAssetsDir)
-    .filter((name) => /^(?:(?:app-main|index)-|app-initial~app-main~).*\.js$/.test(name) || /settings-page.*\.js$/.test(name))
+    .filter((name) => /^(?:(?:app-main|index)-|app-initial~app-main~).*\.js$/.test(name) || /(?:^|~)settings-page(?:[-~].*)?\.js$/.test(name))
     .sort();
 
   let routeMatched = false;

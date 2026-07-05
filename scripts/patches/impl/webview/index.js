@@ -908,6 +908,64 @@ function applyLinuxAppServerBackfillWaitPatch(currentSource) {
   return patchedSource;
 }
 
+function applyLinuxCompletedItemRecoveryPatch(currentSource) {
+  if (currentSource.includes("codexLinuxCompletedItemExists=")) {
+    return currentSource;
+  }
+
+  const completedItemDropPattern =
+    /Mut\(([A-Za-z_$][\w$]*)\)&&\(([A-Za-z_$][\w$]*)\.firstTurnWorkItemStartedAtMs=\2\.firstTurnWorkItemStartedAtMs\?\?Date\.now\(\)\),!\(\1\.type!==`subAgentActivity`&&!TR\(\2,\1\.id,\1\.type\)\)&&\(\1\.type,HI\(\2,([A-Za-z_$][\w$]*)\)\)/u;
+
+  if (completedItemDropPattern.test(currentSource)) {
+    return currentSource.replace(
+      completedItemDropPattern,
+      (_match, completedItemVar, turnVar, viewItemVar) =>
+        `Mut(${completedItemVar})&&(${turnVar}.firstTurnWorkItemStartedAtMs=${turnVar}.firstTurnWorkItemStartedAtMs??Date.now());let codexLinuxCompletedItemExists=${turnVar}.items.some(e=>e.id===${viewItemVar}.id);if(${completedItemVar}.type!==\`subAgentActivity\`&&codexLinuxCompletedItemExists&&!TR(${turnVar},${completedItemVar}.id,${completedItemVar}.type))return;HI(${turnVar},${viewItemVar})`,
+    );
+  }
+
+  if (
+    currentSource.includes("Item not found in turn state") &&
+    currentSource.includes("case`item/completed`") &&
+    currentSource.includes("item/agentMessage/delta")
+  ) {
+    console.warn(
+      "WARN: Could not find completed item recovery insertion point — skipping Linux completed item recovery patch",
+    );
+  }
+
+  return currentSource;
+}
+
+function applyLinuxRemoteTerminalStatusRecoveryPatch(currentSource) {
+  if (currentSource.includes("codexLinuxRemoteTerminalStatusActive=")) {
+    return currentSource;
+  }
+
+  const terminalStatusPattern =
+    /function ([A-Za-z_$][\w$]*)\(\{hasInProgressSideChat:([A-Za-z_$][\w$]*),isResponseInProgress:([A-Za-z_$][\w$]*),latestTurnHasSystemError:([A-Za-z_$][\w$]*),resumeState:([A-Za-z_$][\w$]*),threadRuntimeStatus:([A-Za-z_$][\w$]*)\}\)\{return \2\?`loading`:\6\?\.type===`systemError`\?`error`:\6\?\.type===`active`\?`loading`:\5===`needs_resume`\?`idle`:\4\?`error`:\3===!0\?`loading`:`idle`\}/u;
+
+  if (terminalStatusPattern.test(currentSource)) {
+    return currentSource.replace(
+      terminalStatusPattern,
+      (_match, fnName, sideChatVar, responseProgressVar, systemErrorVar, resumeStateVar, runtimeStatusVar) =>
+        `function ${fnName}({hasInProgressSideChat:${sideChatVar},isResponseInProgress:${responseProgressVar},latestTurnHasSystemError:${systemErrorVar},resumeState:${resumeStateVar},threadRuntimeStatus:${runtimeStatusVar}}){let codexLinuxRemoteTerminalStatusActive=${runtimeStatusVar}?.type===\`active\`,codexLinuxRemoteTerminalStatusLoading=codexLinuxRemoteTerminalStatusActive&&(${responseProgressVar}===!0||!Array.isArray(${runtimeStatusVar}.activeFlags)||${runtimeStatusVar}.activeFlags.length>0);return ${sideChatVar}?\`loading\`:${runtimeStatusVar}?.type===\`systemError\`?\`error\`:codexLinuxRemoteTerminalStatusLoading?\`loading\`:${resumeStateVar}===\`needs_resume\`?\`idle\`:${systemErrorVar}?\`error\`:${responseProgressVar}===!0?\`loading\`:\`idle\`}`,
+    );
+  }
+
+  if (
+    currentSource.includes("hasInProgressSideChat") &&
+    currentSource.includes("isResponseInProgress") &&
+    currentSource.includes("threadRuntimeStatus")
+  ) {
+    console.warn(
+      "WARN: Could not find remote terminal status insertion point — skipping Linux remote terminal status recovery patch",
+    );
+  }
+
+  return currentSource;
+}
+
 function applyLinuxI18nGatePatch(currentSource) {
   const alreadyPatchedI18nGateRegexes = [
     /([A-Za-z_$][\w$]*)=[^;]*?\.get\(`enable_i18n`,!1\)[^;]*;let [^;]*,([A-Za-z_$][\w$]*)=[A-Za-z_$][\w$]*\([A-Za-z_$][\w$]*\.localeOverride\),[A-Za-z_$][\w$]*=\1\|\|\2!=null/u,
@@ -1887,6 +1945,8 @@ function patchCommentPreloadBundle(extractedDir) {
 module.exports = {
   applyBrowserAnnotationScreenshotPatch,
   applyLinuxAppServerBackfillWaitPatch,
+  applyLinuxCompletedItemRecoveryPatch,
+  applyLinuxRemoteTerminalStatusRecoveryPatch,
   applyLinuxAppServerFeatureEnablementPatch,
   applyLinuxChatSearchHydrationPatch,
   applyLinuxBrowserUseAvailabilityPatch,
