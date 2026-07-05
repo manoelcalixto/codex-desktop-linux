@@ -157,6 +157,7 @@ const {
   applyLinuxConfigWriteVersionConflictPatch,
   applyLinuxFastModeModelGuardPatch,
   applyLinuxI18nGatePatch,
+  applyLinuxNativeWindowChromePatch,
   applyLinuxOpaqueWindowsDefaultPatch,
   applyLinuxProfileSettingsMenuPatch,
   applyLinuxSafeMonospaceFontStackPatch,
@@ -884,6 +885,7 @@ test("default core patch descriptors are grouped and unique", () => {
     "opaque-window-default-webview-index",
     "opaque-window-default-resolved-theme",
     "linux-window-controls-safe-area",
+    "linux-native-window-chrome",
     "linux-tooltip-window-controls-collision",
     "linux-thread-side-panel-native-tooltip",
     "linux-fast-mode-model-guard",
@@ -2249,6 +2251,23 @@ test("patches remaining Linux window controls safe areas when another copy is al
   );
 });
 
+test("maps Linux webview window chrome to native titlebar layout", () => {
+  const source = [
+    "function chrome(e,t){if(e!==`electron`)return`native`;switch(t){case`win32`:case`linux`:return`application-menu`;case`darwin`:case`unknown`:return`native`}}",
+    "let inset=i.includes(`win`)||r.includes(`windows`)||i.includes(`linux`)?t??l.applicationMenu:l.default;",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxNativeWindowChromePatch, source);
+
+  assert.match(patched, /case`win32`:return`application-menu`;case`linux`:return`native`/);
+  assert.match(
+    patched,
+    /i\.includes\(`win`\)\|\|r\.includes\(`windows`\)\?t\?\?l\.applicationMenu:l\.default/,
+  );
+  assert.doesNotMatch(patched, /case`win32`:case`linux`:return`application-menu`/);
+  assert.doesNotMatch(patched, /includes\(`linux`\)\?t\?\?l\.applicationMenu/);
+});
+
 test("keeps tooltips out of the Linux window controls titlebar area", () => {
   const middleware =
     "middleware:[a({mainAxis:C,crossAxis:t}),c({padding:8}),l({padding:8}),u({padding:8,apply({availableWidth:e,availableHeight:t,elements:n,rects:r}){n.floating.style.setProperty(`--radix-tooltip-trigger-width`,`1px`)}})]";
@@ -2307,25 +2326,26 @@ test("removes the Linux menu next to Windows removeMenu calls", () => {
 
   assert.equal(
     patched,
-    "process.platform===`linux`&&k.removeMenu(),process.platform===`win32`&&k.removeMenu(),",
+    "process.platform===`linux`&&(k.setMenuBarVisibility(!1),k.removeMenu?.()),process.platform===`win32`&&k.removeMenu(),",
   );
 });
 
 test("patches remaining Windows menu snippets when another copy is already Linux-patched", () => {
   const windowsMenuSnippet = "process.platform===`win32`&&k.removeMenu(),";
-  const linuxMenuPatch = "process.platform===`linux`&&k.removeMenu(),";
+  const linuxMenuPatch = "process.platform===`linux`&&(k.setMenuBarVisibility(!1),k.removeMenu?.()),";
   const source = `${linuxMenuPatch}${windowsMenuSnippet}function createSecondWindow(){${windowsMenuSnippet}}`;
 
   const patched = applyPatchTwice(applyLinuxMenuPatch, source);
 
-  assert.equal((patched.match(/removeMenu\(\)/g) ?? []).length, 4);
+  assert.equal((patched.match(/setMenuBarVisibility/g) ?? []).length, 2);
+  assert.equal((patched.match(/removeMenu/g) ?? []).length, 4);
   assert.match(
     patched,
-    /function createSecondWindow\(\)\{process\.platform===`linux`&&k\.removeMenu\(\),process\.platform===`win32`&&k\.removeMenu\(\),\}/,
+    /function createSecondWindow\(\)\{process\.platform===`linux`&&\(k\.setMenuBarVisibility\(!1\),k\.removeMenu\?\.\(\)\),process\.platform===`win32`&&k\.removeMenu\(\),\}/,
   );
 });
 
-test("upgrades legacy Linux menu snippets to remove the menu", () => {
+test("upgrades legacy Linux menu snippets to hide and remove the menu", () => {
   const source =
     "process.platform===`linux`&&(k.setMenuBarVisibility(!1),k.removeMenu?.()),process.platform===`win32`&&k.removeMenu(),";
 
@@ -2333,19 +2353,21 @@ test("upgrades legacy Linux menu snippets to remove the menu", () => {
 
   assert.equal(
     patched,
-    "process.platform===`linux`&&k.removeMenu(),process.platform===`win32`&&k.removeMenu(),",
+    "process.platform===`linux`&&(k.setMenuBarVisibility(!1),k.removeMenu?.()),process.platform===`win32`&&k.removeMenu(),",
   );
-  assert.doesNotMatch(patched, /setMenuBarVisibility/);
 });
 
-test("recognizes the Linux removeMenu snippet as already applied", () => {
+test("upgrades the Linux removeMenu-only snippet", () => {
   const source =
     "process.platform===`linux`&&k.removeMenu(),process.platform===`win32`&&k.removeMenu(),";
 
   const patched = applyPatchTwice(applyLinuxMenuPatch, source);
 
-  assert.equal(patched, source);
-  assert.equal((patched.match(/process\.platform===`linux`&&k\.removeMenu\(\),/g) ?? []).length, 1);
+  assert.equal(
+    patched,
+    "process.platform===`linux`&&(k.setMenuBarVisibility(!1),k.removeMenu?.()),process.platform===`win32`&&k.removeMenu(),",
+  );
+  assert.equal((patched.match(/process\.platform===`linux`&&\(k\.setMenuBarVisibility\(!1\),k\.removeMenu\?\.\(\)\),/g) ?? []).length, 1);
 });
 
 test("suppresses the global application menu on Linux", () => {
@@ -6986,7 +7008,10 @@ test("patchMainBundleSource keeps non-icon patches active without an icon asset"
   assert.match(patched, /codexLinuxIsQuitInProgress=\(\)=>codexLinuxQuitInProgress===!0/);
   assert.match(patched, /codexLinuxShouldBypassQuitPrompt=\(\)=>codexLinuxExplicitQuitApproved===!0/);
   assert.match(patched, /n\.app\.on\(`before-quit`,codexLinuxBeforeQuitHandler\)/);
-  assert.match(patched, /process\.platform===`linux`&&k\.removeMenu\(\)/);
+  assert.match(
+    patched,
+    /process\.platform===`linux`&&\(k\.setMenuBarVisibility\(!1\),k\.removeMenu\?\.\(\)\)/,
+  );
   assert.match(patched, /linux:\{label:`File Manager`/);
   assert.match(
     patched,

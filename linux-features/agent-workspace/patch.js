@@ -3,10 +3,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const {
-  findCodexRequestWebviewAsset,
-  findImportedAsset,
-  findRequiredWebviewAsset,
-} = require("../../scripts/patches/lib/assets.js");
+  resolveSettingsAssetDependencies,
+} = require("../../scripts/patches/impl/keybinds-settings.js");
 const {
   requireName,
 } = require("../../scripts/patches/lib/minified-js.js");
@@ -1779,38 +1777,22 @@ function resolveAgentWorkspaceSettingsAsset(extractedDir) {
     throw new Error(`missing webview assets directory ${assetsDir}`);
   }
 
-  const jsxRuntimeAsset = findRequiredWebviewAsset(
-    assetsDir,
-    /^jsx-runtime-.*\.js$/,
-    "react.transitional.element",
-    "JSX runtime asset",
-  );
-  const jsxRuntimeSource = fs.readFileSync(path.join(assetsDir, jsxRuntimeAsset), "utf8");
-  const jsxExportsReactFactory = /export\{[^}]*\bn\b/.test(jsxRuntimeSource);
-  const reactAsset = jsxExportsReactFactory
-    ? jsxRuntimeAsset
-    : findRequiredWebviewAsset(assetsDir, /^react-.*\.js$/, "react.transitional.element", "React asset");
-  const reactExportName = jsxExportsReactFactory ? "n" : "t";
-  const chunkAsset = findImportedAsset(assetsDir, reactAsset, "React shared chunk asset");
-  const codexRequestAsset = findCodexRequestWebviewAsset(assetsDir);
-  const settingsPageAsset = findRequiredWebviewAsset(
-    assetsDir,
-    /^settings-content-layout-.*\.js$/,
-    null,
-    "settings content layout asset",
-  );
+  const dependencies = resolveSettingsAssetDependencies(extractedDir, {
+    includeHotkeySettings: false,
+  });
 
   return {
     filePath: path.join(assetsDir, SETTINGS_ASSET),
     source: buildAgentWorkspaceSettingsSource({
-      chunkAsset,
-      reactAsset,
-      reactExportName,
-      settingsPageAsset,
-      settingsPageExportName: "t",
-      codexRequestAsset: codexRequestAsset.assetName,
-      codexRequestExportName: codexRequestAsset.exportName,
+      chunkAsset: dependencies.chunkAsset,
+      reactAsset: dependencies.reactAsset,
+      reactExportName: dependencies.reactExportName,
+      settingsPageAsset: dependencies.settingsPageAsset,
+      settingsPageExportName: dependencies.settingsPageExportName,
+      codexRequestAsset: dependencies.vscodeApiAsset,
+      codexRequestExportName: dependencies.vscodeApiExportName,
     }),
+    generatedAssets: dependencies.generatedAssets,
   };
 }
 
@@ -1835,25 +1817,80 @@ function patchRequiredAssets(extractedDir, filenamePattern, patchFn, description
   });
 }
 
+function collectOptionalMatchingAssetPatches(extractedDir, predicate, patchFn, description) {
+  const assetsDir = webviewAssetsDir(extractedDir);
+  if (!fs.existsSync(assetsDir)) {
+    return [];
+  }
+
+  const candidates = fs
+    .readdirSync(assetsDir)
+    .filter((name) => name.endsWith(".js"))
+    .sort();
+  const patches = [];
+  for (const candidate of candidates) {
+    const filePath = path.join(assetsDir, candidate);
+    const currentSource = fs.readFileSync(filePath, "utf8");
+    if (!predicate(currentSource)) {
+      continue;
+    }
+    try {
+      patches.push({
+        filePath,
+        currentSource,
+        patchedSource: patchFn(currentSource),
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`WARN: Optional Agent Workspaces ${description} patch skipped for ${candidate}: ${message}`);
+    }
+  }
+  return patches;
+}
+
+function isAgentWorkspaceSettingsSectionsBundleSource(currentSource) {
+  return currentSource.includes("slug:`local-environments`")
+    && currentSource.includes("slug:`worktrees`");
+}
+
+function isAgentWorkspaceSettingsSharedBundleSource(currentSource) {
+  return currentSource.includes('"local-environments":{id:`settings.nav.local-environments`')
+    && currentSource.includes("case`worktrees`:{");
+}
+
+function isAgentWorkspaceSettingsRouteBundleSource(currentSource) {
+  return currentSource.includes(SETTINGS_ASSET)
+    || /"general-settings":\(0,[A-Za-z_$][\w$]*\.lazy\)\(\(\)=>[A-Za-z_$][\w$]*\(/.test(currentSource);
+}
+
 function applyAgentWorkspaceSettingsSectionsPatch(currentSource) {
-  if (currentSource.includes(`slug:\`${SETTINGS_SLUG}\``)) {
-    return currentSource;
+  let patchedSource = currentSource;
+
+  if (!patchedSource.includes(`local-environments.${SETTINGS_SLUG}.worktrees`)) {
+    patchedSource = patchedSource.replace(
+      /(`[^`]*local-environments\.)(?!agent-workspaces\.)(worktrees[^`]*`\.split\(`\.`\))/,
+      `$1${SETTINGS_SLUG}.$2`,
+    );
   }
 
   const preferredNeedle = "{slug:`local-environments`},{slug:`worktrees`}";
-  if (currentSource.includes(preferredNeedle)) {
-    return currentSource.replace(
+  if (!patchedSource.includes(`slug:\`${SETTINGS_SLUG}\``) && patchedSource.includes(preferredNeedle)) {
+    patchedSource = patchedSource.replace(
       preferredNeedle,
       `{slug:\`local-environments\`},{slug:\`${SETTINGS_SLUG}\`},{slug:\`worktrees\`}`,
     );
   }
 
   const fallbackNeedle = "n=[{slug:`general-settings`},";
-  if (currentSource.includes(fallbackNeedle)) {
-    return currentSource.replace(
+  if (!patchedSource.includes(`slug:\`${SETTINGS_SLUG}\``) && patchedSource.includes(fallbackNeedle)) {
+    patchedSource = patchedSource.replace(
       fallbackNeedle,
       `n=[{slug:\`general-settings\`},{slug:\`${SETTINGS_SLUG}\`},`,
     );
+  }
+
+  if (patchedSource !== currentSource || patchedSource.includes(`slug:\`${SETTINGS_SLUG}\``)) {
+    return patchedSource;
   }
 
   throw new Error("could not add agent workspace settings section");
@@ -1920,9 +1957,10 @@ function applyAgentWorkspaceSettingsIndexPatch(currentSource) {
   const hasLegacyVisibilityGate =
     patchedSource.includes("case`appearance`:case`git-settings`:case`worktrees`:case`local-environments`:") ||
     patchedSource.includes("case`local-environments`:case`worktrees`:case`environments`:");
-  patchedSource = patchedSource.replaceAll(
-    "`local-environments`,`worktrees`",
-    "`local-environments`,`agent-workspaces`,`worktrees`",
+  patchedSource = insertAgentWorkspaceNavigationSlug(patchedSource);
+  patchedSource = patchedSource.replace(
+    "case`pets`:case`git-settings`:case`worktrees`:case`local-environments`:case`environments`:return",
+    "case`pets`:case`git-settings`:case`worktrees`:case`local-environments`:case`agent-workspaces`:case`environments`:return",
   );
   if (!patchedSource.includes("case`local-environments`:case`agent-workspaces`:case`data-controls`:case`environments`:return")) {
     patchedSource = patchedSource.replace(
@@ -1944,6 +1982,18 @@ function applyAgentWorkspaceSettingsIndexPatch(currentSource) {
   return patchedSource;
 }
 
+function insertAgentWorkspaceNavigationSlug(currentSource) {
+  return currentSource
+    .replaceAll(
+      "`local-environments`,`environments`,`worktrees`",
+      "`local-environments`,`agent-workspaces`,`environments`,`worktrees`",
+    )
+    .replaceAll(
+      "`local-environments`,`worktrees`",
+      "`local-environments`,`agent-workspaces`,`worktrees`",
+    );
+}
+
 function inferSettingsPageJsxAlias(source) {
   return source.match(/\(0,([A-Za-z_$][\w$]*)\.jsxs\)\(\`svg\`,/)?.[1] ?? "Z";
 }
@@ -1952,9 +2002,43 @@ function agentWorkspaceSettingsNavIconSource(jsxAlias = "Z") {
   return `codexLinuxAgentWorkspaceSettingsIcon=e=>(0,${jsxAlias}.jsxs)(\`svg\`,{width:16,height:16,viewBox:\`0 0 16 16\`,fill:\`none\`,xmlns:\`http://www.w3.org/2000/svg\`,...e,children:[(0,${jsxAlias}.jsx)(\`rect\`,{x:2.25,y:2.25,width:11.5,height:11.5,rx:2.1,stroke:\`currentColor\`,strokeWidth:1.2,strokeDasharray:\`1.8 1.4\`}),(0,${jsxAlias}.jsx)(\`path\`,{d:\`M6.15 5.55 7.4 9.55M9.85 5.55 8.6 9.55M6.4 5h3.2\`,stroke:\`currentColor\`,strokeWidth:1.1,strokeLinecap:\`round\`,strokeLinejoin:\`round\`}),(0,${jsxAlias}.jsx)(\`circle\`,{cx:5.1,cy:5, r:1.15,stroke:\`currentColor\`,strokeWidth:1.1}),(0,${jsxAlias}.jsx)(\`circle\`,{cx:10.9,cy:5,r:1.15,stroke:\`currentColor\`,strokeWidth:1.1}),(0,${jsxAlias}.jsx)(\`circle\`,{cx:8,cy:11,r:1.15,stroke:\`currentColor\`,strokeWidth:1.1})]})`;
 }
 
+function declareAgentWorkspaceSettingsIcon(currentSource) {
+  if (!currentSource.includes("codexLinuxAgentWorkspaceSettingsIcon")) {
+    return currentSource;
+  }
+
+  if (/\bvar\s+codexLinuxAgentWorkspaceSettingsIcon\b/.test(currentSource)) {
+    return currentSource;
+  }
+
+  const varMatch = currentSource.match(/\bvar\s+/);
+  if (varMatch != null) {
+    const declarationStart = (varMatch.index ?? 0) + varMatch[0].length;
+    const terminators = [
+      currentSource.indexOf("=", declarationStart),
+      currentSource.indexOf(";", declarationStart),
+    ].filter((index) => index >= 0);
+    const declarationEnd = terminators.length > 0 ? Math.min(...terminators) : currentSource.length;
+    const declaredNames = currentSource
+      .slice(declarationStart, declarationEnd)
+      .split(",")
+      .map((name) => name.trim());
+    if (declaredNames.includes("codexLinuxAgentWorkspaceSettingsIcon")) {
+      return currentSource;
+    }
+    return currentSource.replace(/\bvar\s+/, "var codexLinuxAgentWorkspaceSettingsIcon,");
+  }
+
+  if (/\b(?:let|const)\s+codexLinuxAgentWorkspaceSettingsIcon\b/.test(currentSource)) {
+    return currentSource;
+  }
+
+  return `var codexLinuxAgentWorkspaceSettingsIcon;${currentSource}`;
+}
+
 function applyAgentWorkspaceSettingsIconPatch(currentSource) {
   if (currentSource.includes("codexLinuxAgentWorkspaceSettingsIcon=e=>")) {
-    return currentSource;
+    return declareAgentWorkspaceSettingsIcon(currentSource);
   }
 
   const iconMapMatch = currentSource.match(
@@ -1967,7 +2051,9 @@ function applyAgentWorkspaceSettingsIconPatch(currentSource) {
   const iconSource = agentWorkspaceSettingsNavIconSource(inferSettingsPageJsxAlias(currentSource));
   const index = iconMapMatch.index ?? 0;
   if (iconMapMatch[0].startsWith(",")) {
-    return `${currentSource.slice(0, index)},${iconSource}${currentSource.slice(index)}`;
+    return declareAgentWorkspaceSettingsIcon(
+      `${currentSource.slice(0, index)},${iconSource}${currentSource.slice(index)}`,
+    );
   }
 
   const keyword = iconMapMatch[0].match(/^(var |let |const )/)?.[1] ?? "var ";
@@ -1999,11 +2085,12 @@ function applyAgentWorkspaceSettingsPagePatch(currentSource) {
     );
   }
 
-  patchedSource = patchedSource.replaceAll(
-    "`local-environments`,`worktrees`",
-    "`local-environments`,`agent-workspaces`,`worktrees`",
-  );
+  patchedSource = insertAgentWorkspaceNavigationSlug(patchedSource);
 
+  patchedSource = patchedSource.replace(
+    "case`pets`:case`git-settings`:case`worktrees`:case`local-environments`:case`environments`:return",
+    "case`pets`:case`git-settings`:case`worktrees`:case`local-environments`:case`agent-workspaces`:case`environments`:return",
+  );
   if (!patchedSource.includes("case`local-environments`:case`agent-workspaces`:case`environments`:return")) {
     patchedSource = patchedSource.replace(
       "case`appearance`:case`git-settings`:case`worktrees`:case`local-environments`:case`environments`:return",
@@ -2029,7 +2116,7 @@ function patchAgentWorkspaceRouteAssets(extractedDir) {
   const assetsDir = webviewAssetsDir(extractedDir);
   const candidates = fs
     .readdirSync(assetsDir)
-    .filter((name) => /^(app-main|index)-.*\.js$/.test(name))
+    .filter((name) => /^(?:(?:app-main|index)-|app-initial~app-main~).*\.js$/.test(name) || /settings-page.*\.js$/.test(name))
     .sort();
   let lastError = null;
   const patches = [];
@@ -2037,7 +2124,7 @@ function patchAgentWorkspaceRouteAssets(extractedDir) {
   for (const candidate of candidates) {
     const filePath = path.join(assetsDir, candidate);
     const currentSource = fs.readFileSync(filePath, "utf8");
-    if (!currentSource.includes(SETTINGS_ASSET) && !currentSource.includes('"general-settings":(0,')) {
+    if (!isAgentWorkspaceSettingsRouteBundleSource(currentSource)) {
       continue;
     }
 
@@ -2066,15 +2153,15 @@ function patchAgentWorkspaceSettingsAssets(extractedDir) {
       ? fs.readFileSync(settingsAsset.filePath, "utf8")
       : null;
     const patches = [
-      ...patchRequiredAssets(
+      ...collectOptionalMatchingAssetPatches(
         extractedDir,
-        /^settings-sections-.*\.js$/,
+        isAgentWorkspaceSettingsSectionsBundleSource,
         applyAgentWorkspaceSettingsSectionsPatch,
         "settings sections bundle",
       ),
-      ...patchRequiredAssets(
+      ...collectOptionalMatchingAssetPatches(
         extractedDir,
-        /^settings-shared-.*\.js$/,
+        isAgentWorkspaceSettingsSharedBundleSource,
         applyAgentWorkspaceSettingsSharedPatch,
         "settings shared bundle",
       ),
@@ -2087,8 +2174,15 @@ function patchAgentWorkspaceSettingsAssets(extractedDir) {
       ...patchAgentWorkspaceRouteAssets(extractedDir),
     ];
 
+    const generatedWrites = (settingsAsset.generatedAssets ?? []).filter((generatedAsset) =>
+      !fs.existsSync(generatedAsset.filePath) ||
+        fs.readFileSync(generatedAsset.filePath, "utf8") !== generatedAsset.source
+    );
+    for (const generatedAsset of generatedWrites) {
+      fs.writeFileSync(generatedAsset.filePath, generatedAsset.source, "utf8");
+    }
     fs.writeFileSync(settingsAsset.filePath, settingsAsset.source, "utf8");
-    let changed = previousSettingsSource !== settingsAsset.source ? 1 : 0;
+    let changed = generatedWrites.length + (previousSettingsSource !== settingsAsset.source ? 1 : 0);
     for (const patch of patches) {
       if (patch.patchedSource !== patch.currentSource) {
         fs.writeFileSync(patch.filePath, patch.patchedSource, "utf8");

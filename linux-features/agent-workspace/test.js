@@ -1614,6 +1614,15 @@ test("settings asset patches add navigation, route, visibility, and title", () =
   assert.match(sections, new RegExp(`slug:\`${SETTINGS_SLUG}\``));
   assert.equal(applyAgentWorkspaceSettingsSectionsPatch(sections), sections);
 
+  const sharedMetadata = [
+    "Bj=`general-settings.import.profile.local-environments.worktrees.environments.keyboard-shortcuts`.split(`.`);",
+    "Uj=[{slug:`general-settings`},{slug:`local-environments`},{slug:`worktrees`},{slug:`keyboard-shortcuts`}];",
+  ].join("");
+  const patchedSharedMetadata = applyAgentWorkspaceSettingsSectionsPatch(sharedMetadata);
+  assert.match(patchedSharedMetadata, /local-environments\.agent-workspaces\.worktrees/);
+  assert.match(patchedSharedMetadata, /\{slug:`local-environments`\},\{slug:`agent-workspaces`\},\{slug:`worktrees`\}/);
+  assert.equal(applyAgentWorkspaceSettingsSectionsPatch(patchedSharedMetadata), patchedSharedMetadata);
+
   const shared = applyAgentWorkspaceSettingsSharedPatch(syntheticSettingsShared());
   assert.match(shared, new RegExp(`settings\\.nav\\.${SETTINGS_SLUG}`));
   assert.match(shared, new RegExp(`settings\\.section\\.${SETTINGS_SLUG}`));
@@ -1643,6 +1652,7 @@ test("settings asset patches add navigation, route, visibility, and title", () =
   assert.match(settingsPage, new RegExp(`"${SETTINGS_SLUG}":codexLinuxAgentWorkspaceSettingsIcon`));
   assert.doesNotMatch(settingsPage, new RegExp(`"${SETTINGS_SLUG}":q`));
   assert.match(settingsPage, /`local-environments`,`agent-workspaces`,`worktrees`/);
+  assert.match(settingsPage, /slugs:\[`agent`,`personalization`,`mcp-settings`,`hooks-settings`,`browser-use`,`computer-use`,`read-aloud-settings`,`local-environments`,`agent-workspaces`,`worktrees`,`data-controls`\]/);
   assert.match(settingsPage, /case`local-environments`:case`agent-workspaces`:case`environments`:return!0/);
   assert.match(settingsPage, /case`local-environments`:case`agent-workspaces`:case`worktrees`:case`environments`/);
   assert.equal(applyAgentWorkspaceSettingsPagePatch(settingsPage), settingsPage);
@@ -1662,6 +1672,21 @@ test("settings asset patches add navigation, route, visibility, and title", () =
   assert.equal(
     (settingsPageWithRenamedIconMap.match(/codexLinuxAgentWorkspaceSettingsIcon=e=>/g) ?? []).length,
     1,
+  );
+
+  const settingsPageWithCommaAssignedIconMap = applyAgentWorkspaceSettingsPagePatch(
+    [
+      "var Bn,Vn,Q,Hn,Wn,Gn,Xn=e((()=>{Bn=q(),Q=Me(),Hn={\"linux-desktop\":S,\"general-settings\":S,\"local-environments\":ln,worktrees:F,environments:ln},",
+      "Wn=[`general-settings`,`local-environments`,`worktrees`],Gn=[{key:`coding`,slugs:[`hooks-settings`,`git-settings`,`local-environments`,`environments`,`worktrees`]}];",
+      "function visible(e){switch(e.slug){case`pets`:case`git-settings`:case`worktrees`:case`local-environments`:case`environments`:return!0}}",
+      "if(C)bb0:switch(S.slug){case`local-environments`:case`worktrees`:case`environments`:case`mcp-settings`:T=!1;break bb0;}}))();",
+    ].join(""),
+  );
+  assert.match(settingsPageWithCommaAssignedIconMap, /var codexLinuxAgentWorkspaceSettingsIcon,Bn,Vn/);
+  assert.match(settingsPageWithCommaAssignedIconMap, /,codexLinuxAgentWorkspaceSettingsIcon=e=>/);
+  assert.match(
+    settingsPageWithCommaAssignedIconMap,
+    new RegExp(`"${SETTINGS_SLUG}":codexLinuxAgentWorkspaceSettingsIcon`),
   );
 });
 
@@ -1724,6 +1749,88 @@ test("agent-workspace settings resolve latest upstream request API asset", () =>
     assert.match(settingsSource, /import\{l as __post\}from"\.\/setting-storage-test\.js"/);
     assert.match(settingsSource, /AgentWorkspacesSettings/);
     assert.match(fs.readFileSync(path.join(assetsDir, "index-test.js"), "utf8"), new RegExp(SETTINGS_ASSET));
+  } finally {
+    fs.rmSync(tempApp, { recursive: true, force: true });
+  }
+});
+
+test("agent-workspace settings resolve upstream runtime dependencies without a jsx-runtime asset", () => {
+  const tempApp = fs.mkdtempSync(path.join(os.tmpdir(), "codex-agent-workspace-modern-runtime-"));
+  try {
+    const { assetsDir } = writeSyntheticExtractedApp(tempApp);
+    fs.rmSync(path.join(assetsDir, "jsx-runtime-test.js"), { force: true });
+    fs.rmSync(path.join(assetsDir, "settings-content-layout-test.js"), { force: true });
+    fs.writeFileSync(
+      path.join(assetsDir, "runtime-test.js"),
+      'import{s}from"./chunk-test.js";function r(){return{createElement(){return{}},useState(){return[null,()=>{}]},useCallback(e){return e},useEffect(){}}}function j(){return{jsx(){},jsxs(){}}}export{r,j};',
+    );
+    fs.writeFileSync(
+      path.join(assetsDir, "keyboard-shortcuts-settings-test.js"),
+      'import{s}from"./chunk-test.js";import{r,j}from"./runtime-test.js";var R=s(r(),1),J=j();function K(){(0,R.useState)(0);return (0,J.jsx)("div",{})}export{K};',
+    );
+
+    const { value: result, warnings } = captureWarns(() => patchAgentWorkspaceSettingsAssets(tempApp));
+
+    assert.equal(result.matched, true);
+    assert.ok(
+      warnings.every((warning) => !warning.includes("Agent Workspaces")),
+      warnings.join("\n"),
+    );
+    const settingsSource = fs.readFileSync(path.join(assetsDir, SETTINGS_ASSET), "utf8");
+    assert.match(settingsSource, /import\{r as __reactFactory\}from"\.\/runtime-test\.js"/);
+    assert.match(settingsSource, /import\{t as SettingsPage\}from"\.\/linux-settings-page-linux\.js"/);
+    assert.ok(fs.existsSync(path.join(assetsDir, "linux-settings-page-linux.js")));
+    assert.match(settingsSource, /AgentWorkspacesSettings/);
+  } finally {
+    fs.rmSync(tempApp, { recursive: true, force: true });
+  }
+});
+
+test("agent-workspace settings patch current split settings route chunks without metadata bundles", () => {
+  const tempApp = fs.mkdtempSync(path.join(os.tmpdir(), "codex-agent-workspace-current-settings-"));
+  try {
+    const { assetsDir } = writeSyntheticExtractedApp(tempApp);
+    fs.rmSync(path.join(assetsDir, "index-test.js"), { force: true });
+    fs.rmSync(path.join(assetsDir, "settings-sections-test.js"), { force: true });
+    fs.rmSync(path.join(assetsDir, "settings-shared-test.js"), { force: true });
+    fs.writeFileSync(
+      path.join(assetsDir, "app-initial~app-main~automations-page-test.js"),
+      [
+        "var AH={",
+        "\"linux-desktop\":(0,OH.lazy)(()=>Cs(()=>import(`./linux-desktop-settings-linux.js`),[],import.meta.url)),",
+        "\"general-settings\":(0,OH.lazy)(()=>Cs(()=>import(`./general-settings.js`).then(e=>({default:e.GeneralSettings})),[],import.meta.url))",
+        "};",
+      ].join(""),
+    );
+    fs.writeFileSync(
+      path.join(assetsDir, "settings-page-test.js"),
+      [
+        "var Z={jsx(){},jsxs(){}};",
+        'var pe={"linux-desktop":S,"keyboard-shortcuts":xn,"local-environments":ln,worktrees:F};',
+        "var Wn=[`general-settings`,`linux-desktop`,`git-settings`,`local-environments`,`worktrees`,`data-controls`];",
+        "var Gn=[{key:`coding`,slugs:[`hooks-settings`,`git-settings`,`local-environments`,`environments`,`worktrees`]}];",
+        "function visible(e){switch(e.slug){case`pets`:case`git-settings`:case`worktrees`:case`local-environments`:case`environments`:return!0;case`linux-desktop`:case`general-settings`:case`agent`:case`personalization`:return!0;}}",
+        "if(C)bb0:switch(S.slug){case`local-environments`:case`worktrees`:case`environments`:case`mcp-settings`:T=!1;break bb0;}",
+      ].join(""),
+    );
+
+    const { value: result, warnings } = captureWarns(() => patchAgentWorkspaceSettingsAssets(tempApp));
+
+    assert.equal(result.matched, true);
+    assert.ok(
+      warnings.every((warning) => !warning.includes("Agent Workspaces settings patch skipped")),
+      warnings.join("\n"),
+    );
+    assert.match(
+      fs.readFileSync(path.join(assetsDir, "app-initial~app-main~automations-page-test.js"), "utf8"),
+      new RegExp(SETTINGS_ASSET),
+    );
+    const settingsPage = fs.readFileSync(path.join(assetsDir, "settings-page-test.js"), "utf8");
+    assert.match(settingsPage, /codexLinuxAgentWorkspaceSettingsIcon=e=>/);
+    assert.match(settingsPage, /`local-environments`,`agent-workspaces`,`worktrees`/);
+    assert.match(settingsPage, /slugs:\[`hooks-settings`,`git-settings`,`local-environments`,`agent-workspaces`,`environments`,`worktrees`\]/);
+    assert.match(settingsPage, /case`pets`:case`git-settings`:case`worktrees`:case`local-environments`:case`agent-workspaces`:case`environments`:return!0/);
+    assert.match(settingsPage, /case`local-environments`:case`agent-workspaces`:case`worktrees`:case`environments`/);
   } finally {
     fs.rmSync(tempApp, { recursive: true, force: true });
   }
