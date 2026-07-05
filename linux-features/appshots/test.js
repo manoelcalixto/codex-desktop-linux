@@ -123,7 +123,8 @@ test("appshots availability descriptor matches the current bundle", () => {
     (descriptor) => descriptor.id === "linux-appshots-availability",
   );
 
-  assert.ok(descriptor.pattern.test("appshot-availability-BoK-Z77O.js"));
+  assert.ok(descriptor.pattern.test("app-initial~app-main~appshots-fixture.js"));
+  assert.equal(appshotAvailabilityAtomBundleFixture().includes(descriptor.contentPattern), true);
 });
 
 test("stages the Linux bare modifier monitor helper and Wayland portal hook", () => {
@@ -322,13 +323,13 @@ test("shows Linux AppShots accelerator choices in settings", () => {
   );
 
   assert.match(patched, /navigator\.userAgent\.includes\(`Linux`\)/);
-  assert.match(patched, /codexLinuxAppshotHotkeyOptions=e=>/);
+  assert.match(patched, /function codexLinuxAppshotHotkeyOptions\(e,t\)/);
   assert.match(
     patched,
-    /e\?\.linuxWayland\?\[\{hotkey:`Ctrl\+Super\+A`,label:`Ctrl \+ Super \+ A`\}\]:\[\{hotkey:`DoubleOption`,label:`Alt \+ Alt`\}/,
+    /t\?\.linuxWayland\?\[\{hotkey:`Ctrl\+Super\+A`,label:`Ctrl \+ Super \+ A`\}\]:\[\{hotkey:`DoubleOption`,label:`Alt \+ Alt`\}/,
   );
-  assert.match(patched, /codexLinuxAppshotHotkeyOptions\(h\)\.find/);
-  assert.match(patched, /codexLinuxAppshotHotkeyOptions\(h\)\.map/);
+  assert.match(patched, /codexLinuxAppshotHotkeyOptions\(M,h\)\.find/);
+  assert.match(patched, /codexLinuxAppshotHotkeyOptions\(M,h\)\.map/);
   assert.doesNotMatch(patched, /\bM\.find\(/);
   assert.doesNotMatch(patched, /\bM\.map\(/);
   assert.match(patched, /hotkey:`DoubleOption`,label:`Alt \+ Alt`/);
@@ -338,4 +339,18 @@ test("shows Linux AppShots accelerator choices in settings", () => {
   assert.doesNotMatch(patched, /hotkey:`Ctrl\+Alt\+A`/);
   assert.match(patched, /hotkey:`DoubleCommand`,label:`\\u2318 \+ \\u2318`/);
   assert.match(patched, /hotkey:`DoubleShift`,label:`\\u21e7 \+ \\u21e7`/);
+});
+
+test("shows Linux AppShots accelerator choices in current settings chunk shape", () => {
+  const source = [
+    "var Q,$;",
+    "e((()=>{Q=O(),J=[`appshot-hotkey-state`],Y=v(o,()=>({queryKey:J,queryFn:async()=>({linuxWayland:!1})})),X=[{hotkey:`DoubleCommand`,label:`⌘ + ⌘`},{hotkey:`DoubleOption`,label:`⌥ + ⌥`},{hotkey:`DoubleShift`,label:`⇧ + ⇧`}]}));",
+    "function ge(){let{data:l}=w(Y),m=l?.configuredHotkey??null,h=X.find(e=>e.hotkey===m)??null,k=X.map(e=>e.label);return h??k}",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxAppshotSettingsHotkeyPatch, source);
+
+  assert.match(patched, /function codexLinuxAppshotHotkeyOptions\(e,t\)/);
+  assert.match(patched, /codexLinuxAppshotHotkeyOptions\(X,l\)\.find/);
+  assert.match(patched, /codexLinuxAppshotHotkeyOptions\(X,l\)\.map/);
 });

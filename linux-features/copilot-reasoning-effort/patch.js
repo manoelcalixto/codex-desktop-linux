@@ -86,8 +86,10 @@ function applyCopilotReasoningEffortSettingsPatch(currentSource) {
 function applyCopilotReasoningEffortModelListPatch(currentSource) {
   const copilotReasoningFilterRegex =
     /([A-Za-z_$][\w$]*)===`copilot`\?\[([A-Za-z_$][\w$]*)\.supportedReasoningEfforts\.find\([^)]*\)\?\?\{reasoningEffort:`medium`,description:`medium effort`\}\]:\[\.\.\.\2\.supportedReasoningEfforts\]/g;
+  const currentCopilotReasoningFilterRegex =
+    /\(([A-Za-z_$][\w$]*)===`copilot`\?\[([A-Za-z_$][\w$]*)\.find\([^)]*\)\?\?\{reasoningEffort:`medium`,description:`medium effort`\}\]:\2\)\.filter/g;
 
-  if (!copilotReasoningFilterRegex.test(currentSource)) {
+  if (!copilotReasoningFilterRegex.test(currentSource) && !currentCopilotReasoningFilterRegex.test(currentSource)) {
     if (currentSource.includes("reasoningEffort:`medium`") && currentSource.includes("supportedReasoningEfforts")) {
       console.warn(
         "WARN: Could not find Copilot model reasoning effort filter - skipping Copilot reasoning effort model list patch",
@@ -99,6 +101,9 @@ function applyCopilotReasoningEffortModelListPatch(currentSource) {
   return currentSource.replace(
     copilotReasoningFilterRegex,
     (_, _authMethodVar, modelVar) => `[...${modelVar}.supportedReasoningEfforts]`,
+  ).replace(
+    currentCopilotReasoningFilterRegex,
+    (_, _authMethodVar, effortsVar) => `${effortsVar}.filter`,
   );
 }
 
@@ -149,7 +154,8 @@ module.exports = {
       id: "settings",
       name: "copilot-reasoning-effort-settings",
       phase: "webview-asset",
-      pattern: /^(use-model-settings|use-collaboration-mode)-.*\.js$/,
+      pattern: /\.js$/,
+      contentPattern: "copilot-default-model",
       missingDescription: "model settings bundle",
       skipDescription: "Copilot reasoning effort settings patch",
       apply: applyCopilotReasoningEffortSettingsPatch,
@@ -158,7 +164,9 @@ module.exports = {
       id: "model-list",
       name: "copilot-reasoning-effort-model-list",
       phase: "webview-asset",
-      pattern: /^(font-settings|model-queries)-.*\.js$/,
+      pattern: /\.js$/,
+      contentPattern: (source) =>
+        source.includes("===`copilot`?[") && source.includes("reasoningEffort:`medium`,description:`medium effort`"),
       missingDescription: "font settings bundle",
       skipDescription: "Copilot reasoning effort model list patch",
       apply: applyCopilotReasoningEffortModelListPatch,

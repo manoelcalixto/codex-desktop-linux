@@ -24,7 +24,11 @@ function applyApiKeyServiceTierGatePatch(source) {
       `d=!${loadingVar}&&(${isChatGptVar}?${requirementsVar}!=null&&${requirementsVar}?.requirements?.featureRequirements?.fast_mode!==!1:${authMethodVar}===\`apikey\`)`,
   );
 
-  if (patched !== source || source.includes(`${authMethodVarName(source)}===\`apikey\``)) {
+  if (
+    patched !== source ||
+    source.includes(`${authMethodVarName(source)}===\`apikey\``) ||
+    /===`apikey`[\s\S]{0,300}?isServiceTierAllowed/.test(source)
+  ) {
     return patched;
   }
 
@@ -123,7 +127,8 @@ const descriptors = [
     phase: "webview-asset",
     order: 20600,
     ciPolicy: "optional",
-    pattern: /^app-initial~app-main~.*\.js$/,
+    pattern: /\.js$/,
+    contentPattern: (source) => source.includes("defaultServiceTier") && source.includes("list-models-for-host"),
     missingDescription: "app main webview bundle",
     skipDescription: "API key service tier UI patch",
     apply: applyApiKeyServiceTierPatch,

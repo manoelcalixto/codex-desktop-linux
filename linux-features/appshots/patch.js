@@ -198,21 +198,22 @@ function applyLinuxAppshotSettingsHotkeyPatch(currentSource) {
   let changed = false;
   let optionsVarName = null;
   let patchedSource = currentSource.replace(
-    /((?:var\s+|,)([A-Za-z_$][\w$]*)=)(\[\{hotkey:`DoubleCommand`,label:`[^`]+`\},\{hotkey:`DoubleOption`,label:`[^`]+`\},\{hotkey:`DoubleShift`,label:`[^`]+`\}\])(?=;)/,
+    /((?:var\s+|,)([A-Za-z_$][\w$]*)=)(\[\{hotkey:`DoubleCommand`,label:`[^`]+`\},\{hotkey:`DoubleOption`,label:`[^`]+`\},\{hotkey:`DoubleShift`,label:`[^`]+`\}\])(?=[,;}])/,
     (match, declarationPrefix, optionsVar, macOptions) => {
       changed = true;
       optionsVarName = optionsVar;
-      const helper =
-        `codexLinuxAppshotHotkeyOptions=e=>typeof navigator!=\`undefined\`&&navigator.userAgent.includes(\`Linux\`)?e?.linuxWayland?${linuxWaylandOptions}:${linuxX11Options}:${optionsVar}`;
-      return `${declarationPrefix}${macOptions},${helper}`;
+      return `${declarationPrefix}${macOptions}`;
     },
   );
 
   if (changed && optionsVarName != null) {
     const escapedOptionsVarName = escapeRegExp(optionsVarName);
+    const helper =
+      `function codexLinuxAppshotHotkeyOptions(e,t){return typeof navigator!=\`undefined\`&&navigator.userAgent.includes(\`Linux\`)?t?.linuxWayland?${linuxWaylandOptions}:${linuxX11Options}:e}`;
     patchedSource = patchedSource
-      .replace(new RegExp(`\\b${escapedOptionsVarName}\\.find\\(`, "g"), `codexLinuxAppshotHotkeyOptions(${stateDataVar}).find(`)
-      .replace(new RegExp(`\\b${escapedOptionsVarName}\\.map\\(`, "g"), `codexLinuxAppshotHotkeyOptions(${stateDataVar}).map(`);
+      .replace(new RegExp(`\\b${escapedOptionsVarName}\\.find\\(`, "g"), `codexLinuxAppshotHotkeyOptions(${optionsVarName},${stateDataVar}).find(`)
+      .replace(new RegExp(`\\b${escapedOptionsVarName}\\.map\\(`, "g"), `codexLinuxAppshotHotkeyOptions(${optionsVarName},${stateDataVar}).map(`);
+    patchedSource = helper + patchedSource;
   }
 
   if (changed) {
@@ -314,7 +315,8 @@ const descriptors = [
     id: "linux-appshots-availability",
     phase: "webview-asset",
     order: 1090,
-    pattern: /^appshot-availability-.*\.js$/,
+    pattern: /\.js$/,
+    contentPattern: "requirements?.allowAppshots",
     missingDescription: "AppShots availability bundle",
     skipDescription: "Linux AppShots availability patch",
     apply: applyLinuxAppshotAvailabilityPatch,

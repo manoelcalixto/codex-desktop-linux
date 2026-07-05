@@ -56,6 +56,8 @@ const latestOpenInCommandBundle =
   "function pP(e){return e.targets}function iP(e,t){return{target:t}}class App{constructor(){this.getOpenInWorker=()=>async()=>({command:null});this.settingsStore={targets:[{id:`linux-desktop-agent`,detect:async()=>`main-command`},{id:`missing`,detect:async()=>null}]}}getSettingsStore(){return this.settingsStore}async getOpenInTargetCommand(e){let{command:t}=await this.getOpenInWorker()({method:`get-target-command`,params:iP(this.getSettingsStore(),e)});if(t==null)throw Error(`Open target \"${e}\" is not available`);return t}}";
 const openInAvailabilityBundle =
   "function pP(e){return e.targets}function eP(e){return e.map(({id:e,label:t,icon:n,kind:r,hidden:i,supportsSsh:a})=>({id:e,label:t,icon:n,kind:r,hidden:i,supportsSsh:a}))}function rP(e){return eP(pP(e))}function iP(e,t){return{target:t}}function tP(){return{error(){},warning(){}}}async function aP(e,t){let n=await Promise.all(rP(e).map(async n=>{let r=iP(e,n.id),[i,a]=await Promise.all([t({method:`get-target-command`,params:r}).then(e=>e.command).catch(e=>(tP().error(`Failed to detect open target`,{safe:{},sensitive:{id:n.id,error:e}}),null)),process.platform===`win32`?t({method:`load-target-icon`,params:r}).then(e=>e.icon).catch(e=>(tP().warning(`Failed to resolve open target icon`,{safe:{},sensitive:{id:n.id,error:e}}),n.icon)):n.icon]);return{command:i,metadata:{...n,icon:a}}}));return{allAvailableTargets:n.flatMap(({command:e,metadata:t})=>e==null?[]:[t.id]),targetMetadata:n.map(({metadata:e})=>e)}}";
+const currentOpenInAvailabilityBundle =
+  "function cP(e){return[{id:`wrong`,detect:async()=>`/bad`}]}function lP(e){return e}function bP(e){return lP(cP(e))}var a={shell:{readShortcutLink:e=>e}},IN={},JN=async e=>a.shell.readShortcutLink(e);function ZN(e){return e.map(({id:e,label:t,icon:n,kind:r,hidden:i,supportsSsh:a})=>({id:e,label:t,icon:n,kind:r,hidden:i,supportsSsh:a}))}function eP(e){return ZN(uP(e))}function tP(e,t){return{target:t}}function QN(){return{error(){},warning(){}}}function uP(e){return e.targets}async function nP(e,t){let n=await Promise.all(eP(e).map(async n=>{let r=tP(e,n.id),[i,a]=await Promise.all([t({method:`get-target-command`,params:r}).then(e=>e.command).catch(e=>(QN().error(`Failed to detect open target`,{safe:{},sensitive:{id:n.id,error:e}}),null)),process.platform===`win32`?t({method:`load-target-icon`,params:r}).then(e=>e.icon).catch(e=>(QN().warning(`Failed to resolve open target icon`,{safe:{},sensitive:{id:n.id,error:e}}),n.icon)):n.icon]);return{command:i,metadata:{...n,icon:a}}}));return{allAvailableTargets:n.flatMap(({command:e,metadata:t})=>e==null?[]:[t.id]),targetMetadata:n.map(({metadata:e})=>e)}}";
 const openInBridgeBundle =
   "async function JN(){}function iP(e){return e.targets}var IN={};var bridge={options:{settingsStore:{targets:[{id:`linux-desktop-agent`,detect:async()=>`main-command`},{id:`missing`,detect:async()=>null}]},requestOpenInWorker:async()=>({command:`worker-command`})},openInTargets:{detectTarget:async({target:e})=>{if(this.options.requestOpenInWorker==null)throw Error(`Open in worker unavailable`);let{command:t}=await this.options.requestOpenInWorker({method:`get-target-command`,params:JN(this.options.settingsStore,e)});return{available:t!=null}},loadTargetIcon:()=>{}}}";
 const latestOpenInBridgeBundle =
@@ -66,6 +68,8 @@ const openInTargetsBundle =
   '"open-in-targets":async({cwd:e,deferEnrichment:n=!1,hostId:r,nativeBrowserDiscovery:i=`scan`,path:a})=>{let o=this.getRequestAppServerClient(r??void 0),s=this.getSettingsStore();let[c,l]=await Promise.all([XN(s),YN(s)]),u=a?.replace(/^([ab])[\\\\/]/,``)??null,d=u!=null&&_F(u)&&!t.Ta(o.hostConfig),f=u==null||d||t.Ta(o.hostConfig)?null:this.resolveOpenFilePath(this.mapAgentPathToLocalPath(u,o.hostConfig)??u,this.mapAgentPathToLocalPath(e,o.hostConfig)??this.getWorkspaceRoot()),p=oj(o.hostConfig,c,l),m=new Set(p),h=tP(s,e,m),g=d||f!=null&&t.wo(f),_=f!=null&&UA(f),v=f!=null&&GA(f),y=g?await gF({nativeBrowserDiscovery:i}):_?await hF({filePath:f}):[];return{preferredTarget:h,availableTargets:Array.from(m),mode:g||v?`native`:`editor`,targets:[...l.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:m.has(e),default:h===e||void 0})),...y]}}';
 const latestOpenInTargetsBundle =
   '"open-in-targets":async({cwd:e,deferEnrichment:n=!1,hostId:r,nativeBrowserDiscovery:i=`scan`,path:a})=>{let o=this.getRequestAppServerClient(r??void 0),s=this.getSettingsStore();if(n&&a==null){let t=dP(s,e);return{preferredTarget:t,availableTargets:[],mode:`editor`,targets:Ej(rP(s),o.hostConfig).map(({id:e,label:n,icon:r,kind:i,hidden:a})=>({id:e,target:e,label:n,icon:r,kind:i,hidden:a,default:t===e||void 0}))}}let{allAvailableTargets:c,targetMetadata:l}=await aP(s,this.getOpenInWorker()),u=a?.replace(/^([ab])[\\\\/]/,``)??null,d=u!=null&&PF(u)&&!t.Ha(o.hostConfig),f=u==null||d||t.Ha(o.hostConfig)?null:this.resolveOpenFilePath(this.mapAgentPathToLocalPath(u,o.hostConfig)??u,this.mapAgentPathToLocalPath(e,o.hostConfig)??this.getWorkspaceRoot()),p=Tj(o.hostConfig,c,l),m=new Set(p),h=uP(s,e,m),g=d||f!=null&&t.rs(f),_=f!=null&&cj(f),v=f!=null&&uj(f),y=g?await MF(i):_?await jF({filePath:f}):[];return{preferredTarget:h,availableTargets:Array.from(m),mode:g||v?`native`:`editor`,targets:[...l.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:m.has(e),default:h===e||void 0})),...y]}}';
+const currentOpenInTargetsBundle =
+  '"open-in-targets":async({cwd:e,deferEnrichment:n=!1,hostId:r,nativeBrowserDiscovery:i=`scan`,path:a})=>{let o=this.getRequestAppServerClient(r??void 0),s=this.getSettingsStore();if(n&&a==null){let t=cP(s,e);return{preferredTarget:t,availableTargets:[],mode:`editor`,targets:Cj(eP(s),o.hostConfig).map(({id:e,label:n,icon:r,kind:i,hidden:a})=>({id:e,target:e,label:n,icon:r,kind:i,hidden:a,default:t===e||void 0}))}}let{allAvailableTargets:c,targetMetadata:l}=await nP(s,this.getOpenInWorker()),u=a?.replace(/^([ab])[\\\\/]/,``)??null,d=u!=null&&jF(u)&&!t.Ua(o.hostConfig),f=u==null||d||t.Ua(o.hostConfig)?null:this.resolveOpenFilePath(this.mapAgentPathToLocalPath(u,o.hostConfig)??u,this.mapAgentPathToLocalPath(e,o.hostConfig)??this.getWorkspaceRoot()),p=Sj(o.hostConfig,c,l),m=new Set(p),h=sP(s,e,m),g=d||f!=null&&t.is(f),_=f!=null&&aj(f),v=f!=null&&sj(f),y=g?await kF(i):_?await OF({filePath:f}):[];return{preferredTarget:h,availableTargets:Array.from(m),mode:g||v?`native`:`editor`,targets:[...l.map(({id:e,label:t,icon:n,kind:r,hidden:i})=>({id:e,target:e,label:t,icon:n,kind:r,hidden:i,available:m.has(e),default:h===e||void 0})),...y]}}';
 const openTargetSelectionBundle =
   "function e({targets:e,availableTargets:t,includeHiddenTargets:n=!1,mode:r=`editor`}){let i=e.filter(e=>e.appPath!=null);if(i.length>0)return i;if(r===`native`)return e.filter(e=>e.target===`systemDefault`||e.target===`fileManager`);let a=new Set(t);return e.filter(e=>a.has(e.target)&&(n||!e.hidden))}function t({preferredTarget:t,targets:n,availableTargets:r,includeHiddenTargets:i=!0,mode:a=`editor`}){let o=e({targets:n,availableTargets:r,includeHiddenTargets:i,mode:a});return o.length===0?null:t?o.find(e=>e.target===t)??o[0]??null:o[0]??null}function n(e){return e.appPath==null&&e.kind===`editor`}export{e as n,t as r,n as t};";
 const latestOpenTargetSelectionBundle =
@@ -1166,6 +1170,18 @@ test("open-target discovery uses main registry for target availability", async (
   assert.deepEqual(result.targetMetadata.map((target) => target.id), ["linux-desktop-agent", "missing"]);
 });
 
+test("open-target discovery patches current target availability shape", async () => {
+  const patched = applyPatchTwice(applyOpenInTargetsAvailabilityPatch, currentOpenInAvailabilityBundle);
+  const worker = async () => ({ command: null });
+  const result = await new Function(
+    `${patched};return nP({targets:[{id:'linux-desktop-agent',label:'Agent',icon:'apps/terminal.png',kind:'editor',detect:async e=>e===JN?'/usr/bin/agent':null},{id:'missing',label:'Missing',icon:'apps/terminal.png',kind:'editor',detect:async()=>null}]}, arguments[0]);`,
+  )(worker);
+
+  assert.match(patched, /function codexLinuxOpenTargetRegistryTargets\(e\)\{let t=null;try\{t=typeof uP===`function`\?uP\(e\)/);
+  assert.match(patched, /r=typeof JN!==`undefined`\?JN:void 0/);
+  assert.deepEqual(result.allAvailableTargets, ["linux-desktop-agent"]);
+});
+
 test("open-target discovery bridge detection uses main registry on Linux", async () => {
   const patched = applyPatchTwice(applyOpenInTargetsBridgeDetectionPatch, openInBridgeBundle);
   const options = {
@@ -1271,6 +1287,13 @@ test("open-target discovery patches latest directory mode expression", () => {
 
   assert.match(patched, /codexLinuxOpenTargetIsDirectory/);
   assert.match(patched, /w=f!=null&&codexLinuxOpenTargetIsDirectory\(f\)/);
+});
+
+test("open-target discovery patches current directory mode expression", () => {
+  const patched = applyPatchTwice(applyOpenInTargetsDirectoryModePatch, currentOpenInTargetsBundle);
+
+  assert.match(patched, /codexLinuxOpenTargetIsDirectory/);
+  assert.match(patched, /g=d\|\|f!=null&&codexLinuxOpenTargetIsDirectory\(f\)\|\|f!=null&&t\.is\(f\)/);
 });
 
 test("open-target discovery native selector includes available directory-capable targets", () => {
