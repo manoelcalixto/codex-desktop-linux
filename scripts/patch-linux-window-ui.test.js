@@ -144,6 +144,9 @@ const {
   summarizePatchReport,
 } = require("./lib/patch-report.js");
 const {
+  requireName,
+} = require("./patches/lib/minified-js.js");
+const {
   applyBrowserAnnotationScreenshotPatch,
   applyLocalEnvironmentActionModalDraftPatch,
   applyPersistentRateLimitFooterPatch,
@@ -259,6 +262,16 @@ function evaluateAutomationSchedule(source, now, options) {
   );
   return context.result;
 }
+
+test("requireName ignores chained require calls", () => {
+  const source = [
+    "function open(){let __codexChild=require(`node:child_process`).spawn(`xdg-open`,[])}",
+    "let cp=require(`node:child_process`),fs=require(`node:fs`);",
+  ].join("");
+
+  assert.equal(requireName(source, "node:child_process"), "cp");
+  assert.equal(requireName("let child=require(`node:child_process`).spawn(`x`,[])", "node:child_process"), null);
+});
 
 test("automation schedule patch honors multiple BYHOUR values", () => {
   const patched = applyPatchTwice(applyAutomationScheduleMultiTimePatch, automationScheduleBundleFixture());
@@ -5153,7 +5166,7 @@ test("adds Linux package updater behind the existing app updater manager", () =>
   assert.match(patched, /function codexLinuxInstallAfterQuit\(\)/);
   assert.match(patched, /function codexLinuxQuitForUpdate\(\)/);
   assert.match(patched, /let e=codexLinuxGetElectronModule\(\);if\(!e\)return;await e\.dialog\?\.showMessageBox\(\{type:`info`/);
-  assert.match(patched, /u\.spawn\(`\/bin\/sh`/);
+  assert.match(patched, /require\(`node:child_process`\)\.spawn\(`\/bin\/sh`/);
   assert.match(patched, /install-ready\|\|exit \$\?/);
   assert.match(patched, /grep -q "\^status: WaitingForAppExit"/);
   assert.match(patched, /status: Installing/);
@@ -5388,10 +5401,30 @@ test("migrates already-patched Linux updater bridge to probe without mutating re
   assert.doesNotMatch(migrated, /codexLinuxRunUpdateManager\(\[`status`,`--json`\]\)/);
 });
 
+test("migrates already-patched Linux updater bridge away from scoped child_process aliases", () => {
+  const source =
+    "function open(){let __codexChild=require(`node:child_process`).spawn(`xdg-open`,[])}" +
+    currentBootstrapUpdaterBundleFixture().replace(",u=require(`node:child_process`)", "");
+  const patched = applyLinuxAppUpdaterBridgePatch(source);
+  const broken = patched
+    .replace(/require\(`node:child_process`\)\.spawn\(`\/bin\/sh`/, "__codexChild.spawn(`/bin/sh`")
+    .replace(/require\(`node:child_process`\)\.execFile\(codexLinuxUpdateManagerPath\(\),e/, "__codexChild.execFile(codexLinuxUpdateManagerPath(),e");
+
+  assert.match(broken, /__codexChild\.spawn\(`\/bin\/sh`/);
+  assert.match(broken, /__codexChild\.execFile\(codexLinuxUpdateManagerPath\(\),e/);
+
+  const migrated = applyLinuxAppUpdaterBridgePatch(broken);
+
+  assert.match(migrated, /require\(`node:child_process`\)\.spawn\(`\/bin\/sh`/);
+  assert.match(migrated, /require\(`node:child_process`\)\.execFile\(codexLinuxUpdateManagerPath\(\),e/);
+  assert.doesNotMatch(migrated, /__codexChild\.spawn\(`\/bin\/sh`/);
+  assert.doesNotMatch(migrated, /__codexChild\.execFile\(codexLinuxUpdateManagerPath\(\),e/);
+});
+
 test("migrates an already-patched Linux updater bridge to quit before install", () => {
   const patched = applyLinuxAppUpdaterBridgePatch(appUpdaterBundleFixture());
   const oldPatched = patched
-    .replace(/function codexLinuxInstallAfterQuit\(\)\{try\{let e=u\.spawn\(`\/bin\/sh`,\[`-c`,[^]*?\);e\.unref\?\.\(\)\}catch\{\}\}/, "")
+    .replace(/function codexLinuxInstallAfterQuit\(\)\{try\{let e=require\(`node:child_process`\)\.spawn\(`\/bin\/sh`,\[`-c`,[^]*?\);e\.unref\?\.\(\)\}catch\{\}\}/, "")
     .replace(
       /function codexLinuxQuitForUpdate\(\)\{try\{codexLinuxInstallAfterQuit\(\);let t=codexLinuxGetElectronModule\(\);if\(!t\)return;let e=setTimeout\(\(\)=>t\.app\?\.exit\?\.\(0\),1500\);e\.unref\?\.\(\),t\.app\?\.quit\?\.\(\)\}catch\{\}\}/,
       "function codexLinuxQuitForUpdate(){try{let e=setTimeout(()=>t.app?.exit?.(0),1500);e.unref?.(),t.app?.quit?.()}catch{}}",
@@ -5413,7 +5446,7 @@ test("migrates an already-patched Linux updater bridge to relaunch after install
   const oldHelper =
     "function codexLinuxInstallAfterQuit(){try{let e=u.spawn(`/bin/sh`,[`-c`,`for i in 1 2 3 4 5 6 7 8 9 10;do sleep 1;\"$1\" install-ready||exit $?;\"$1\" status|grep -q \"^status: WaitingForAppExit\"||exit 0;done`,`codex-linux-update-install`,codexLinuxUpdateManagerPath()],{detached:!0,stdio:`ignore`,windowsHide:!0});e.unref?.()}catch{}}";
   const oldPatched = patched.replace(
-    /function codexLinuxInstallAfterQuit\(\)\{try\{let e=u\.spawn\(`\/bin\/sh`,\[`-c`,[^]*?e\.unref\?\.\(\)\}catch\{\}\}/,
+    /function codexLinuxInstallAfterQuit\(\)\{try\{let e=require\(`node:child_process`\)\.spawn\(`\/bin\/sh`,\[`-c`,[^]*?e\.unref\?\.\(\)\}catch\{\}\}/,
     oldHelper,
   );
   assert.doesNotMatch(oldPatched, /\/usr\/bin\/codex-desktop/);

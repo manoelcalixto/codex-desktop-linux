@@ -6,7 +6,7 @@ const HANDLER_PREFIX_LOOKBACK = 12000;
 
 function requireName(source, moduleName) {
   const escaped = moduleName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = source.match(new RegExp(`([A-Za-z_$][\\w$]*)=require\\(([\\\`"'])${escaped}\\2\\)`));
+  const match = source.match(new RegExp(`([A-Za-z_$][\\w$]*)=require\\(([\\\`"'])${escaped}\\2\\)(?!\\s*\\.)`));
   return match?.[1] ?? null;
 }
 

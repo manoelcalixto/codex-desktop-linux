@@ -17,17 +17,24 @@ function warn(message, patchName) {
 }
 
 function applyMainBundlePatch(source) {
+  const childProcessExpr = "require(`node:child_process`)";
   if (source.includes(`"${HANDLER_NAME}":async`)) {
-    return source;
+    return source
+      .replace(
+        /let c=[A-Za-z_$][\w$]*\.spawn\(codexLinuxWrapManagerPath\(\),\[`check-wrapper`\],\{stdio:`ignore`,detached:!0,env:process\.env\}\);c\.on\(`error`,\(\)=>\{\}\);c\.unref\(\)/,
+        `let c=${childProcessExpr}.spawn(codexLinuxWrapManagerPath(),[\`check-wrapper\`],{stdio:\`ignore\`,detached:!0,env:process.env});c.on(\`error\`,()=>{});c.unref()`,
+      )
+      .replace(
+        /[A-Za-z_$][\w$]*\.spawnSync\(codexLinuxWrapManagerPath\(\),\[`pick-features`,`--json`\],\{stdio:`ignore`,env:process\.env\}\)/,
+        `${childProcessExpr}.spawnSync(codexLinuxWrapManagerPath(),[\`pick-features\`,\`--json\`],{stdio:\`ignore\`,env:process.env})`,
+      );
   }
 
   const fsVar = requireName(source, "node:fs");
   const pathVar = requireName(source, "node:path");
-  const childProcessVar =
-    requireName(source, "node:child_process") ?? requireName(source, "child_process");
-  if (fsVar == null || pathVar == null || childProcessVar == null) {
+  if (fsVar == null || pathVar == null) {
     warn(
-      "Could not find node:fs/node:path/node:child_process deps",
+      "Could not find node:fs/node:path deps",
       "codex wrapper updater main-bundle patch",
     );
     return source;
@@ -43,7 +50,7 @@ function applyMainBundlePatch(source) {
     `function codexLinuxWrapShouldShow(s){return !!(s&&typeof s===\`object\`&&s.wrapper_dev_mode!==!0&&typeof s.candidate_wrapper_commit===\`string\`&&s.candidate_wrapper_commit.length>0)}`,
     `function codexLinuxWrapStatusPayload(){let s=codexLinuxWrapReadStatus();return{ok:!0,show:codexLinuxWrapShouldShow(s),dev_mode:!!(s&&s.wrapper_dev_mode===!0),changelog:s?s.wrapper_changelog||\`\`:\`\`,commit:s?s.candidate_wrapper_commit||\`\`:\`\`,installed_commit:s?s.installed_wrapper_commit||\`\`:\`\`}}`,
     `function codexLinuxWrapManagerPath(){let e=process.env.CODEX_UPDATE_MANAGER_PATH;return typeof e===\`string\`&&e.trim().length>0?e:\`codex-update-manager\`}`,
-    `function codexLinuxWrapSpawnCheck(){try{let c=${childProcessVar}.spawn(codexLinuxWrapManagerPath(),[\`check-wrapper\`],{stdio:\`ignore\`,detached:!0,env:process.env});c.on(\`error\`,()=>{});c.unref()}catch{}}`,
+    `function codexLinuxWrapSpawnCheck(){try{let c=${childProcessExpr}.spawn(codexLinuxWrapManagerPath(),[\`check-wrapper\`],{stdio:\`ignore\`,detached:!0,env:process.env});c.on(\`error\`,()=>{});c.unref()}catch{}}`,
     // Feature picker on update: resolve settings.json the same way the launcher
     // and launch-actions do, and gate the on-click picker on the
     // `codex-linux-feature-picker-on-update` toggle (absent ⇒ ask) plus a live
@@ -53,7 +60,7 @@ function applyMainBundlePatch(source) {
     `function codexLinuxWrapSettingsPath(){let e=process.env.CODEX_LINUX_SETTINGS_FILE;if(typeof e===\`string\`&&e.length>0)return e;let h=codexLinuxWrapHome();let t=process.env.XDG_CONFIG_HOME||(h&&${pathVar}.join(h,\`.config\`));return t?${pathVar}.join(t,codexLinuxWrapSettingsAppId(),\`settings.json\`):null}`,
     `function codexLinuxWrapPickerEnabled(){try{let p=codexLinuxWrapSettingsPath();if(!p||!${fsVar}.existsSync(p))return!0;let s=JSON.parse(${fsVar}.readFileSync(p,\`utf8\`));if(!s||typeof s!==\`object\`)return!0;let v=s[\`codex-linux-feature-picker-on-update\`];if(v==null)return!0;if(typeof v===\`boolean\`)return v;if(typeof v===\`number\`)return v!==0;if(typeof v===\`string\`){let n=v.trim().toLowerCase();return!([\`0\`,\`false\`,\`no\`,\`off\`].includes(n))}return!0}catch{return!0}}`,
     `function codexLinuxWrapHasDisplay(){let d=process.env.DISPLAY,w=process.env.WAYLAND_DISPLAY;return!!((d&&d.trim())||(w&&w.trim()))}`,
-    `function codexLinuxWrapRunPicker(){try{${childProcessVar}.spawnSync(codexLinuxWrapManagerPath(),[\`pick-features\`,\`--json\`],{stdio:\`ignore\`,env:process.env})}catch{}}`,
+    `function codexLinuxWrapRunPicker(){try{${childProcessExpr}.spawnSync(codexLinuxWrapManagerPath(),[\`pick-features\`,\`--json\`],{stdio:\`ignore\`,env:process.env})}catch{}}`,
     `function codexLinuxWrapWriteMarker(){let p=codexLinuxWrapMarkerPath();if(!p)return{ok:!1,reason:\`no-marker-path\`};try{${fsVar}.mkdirSync(${pathVar}.dirname(p),{recursive:!0});${fsVar}.writeFileSync(p,new Date().toISOString());return{ok:!0,path:p}}catch(e){return{ok:!1,error:String(e?.message||e)}}}`,
     `function codexLinuxWrapInstallNow(){if(codexLinuxWrapHasDisplay()&&codexLinuxWrapPickerEnabled())codexLinuxWrapRunPicker();let m=codexLinuxWrapWriteMarker();if(!m.ok)return m;try{let a=require(\`electron\`).app;setTimeout(()=>a.exit(0),120);return{ok:!0,path:m.path}}catch(e){return{ok:!1,error:String(e?.message||e)}}}`,
     `function codexLinuxWrapHandle(e={}){let action=e&&e.action;if(action===\`status\`)return codexLinuxWrapStatusPayload();if(action===\`check\`){codexLinuxWrapSpawnCheck();return{ok:!0}}if(action===\`install\`)return codexLinuxWrapInstallNow();return{ok:!1,reason:\`unknown-action\`}}`,

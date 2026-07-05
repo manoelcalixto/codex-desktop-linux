@@ -517,8 +517,24 @@ test("main bridge patch resolves quoted require aliases", () => {
   ].join("");
   const patched = applyAgentWorkspaceMainBridgePatch(quotedBundle);
   assert.match(patched, /"linux-agent-workspace":async/);
-  assert.match(patched, /execFile\(__codexCommand,__codexArgs/);
+  assert.match(patched, /require\(`node:child_process`\)\.execFile\(__codexCommand,__codexArgs/);
   assert.equal(applyAgentWorkspaceMainBridgePatch(patched), patched);
+});
+
+test("main bridge patch does not reuse scoped child_process aliases from other patches", () => {
+  const bundle = [
+    "function codexLinuxLaunchExternalUrl(){let __codexChild=require(`node:child_process`).spawn(`xdg-open`,[])}",
+    "let f=require(`node:child_process`),o=require(`node:fs`),i=require(`node:path`);",
+    "class Host{handlers(){return {",
+    '"get-global-state":async({key:t})=>({value:this.globalState.get(t)}),',
+    '"set-global-state":async({key:t,value:n})=>(this.globalState.set(t,n),{success:!0})',
+    "}}}",
+  ].join("");
+  const patched = applyAgentWorkspaceMainBridgePatch(bundle);
+  assert.match(patched, /"linux-agent-workspace":async/);
+  assert.doesNotMatch(patched, /__codexChild\.execFile/);
+  assert.doesNotMatch(patched, /__codexChild\.spawn\(__codexCommand/);
+  assert.match(patched, /require\(`node:child_process`\)\.execFile\(__codexCommand,__codexArgs/);
 });
 
 test("main bridge patch adds an allowlisted linux-agent-workspace handler", () => {
@@ -571,7 +587,7 @@ test("main bridge patch adds an allowlisted linux-agent-workspace handler", () =
   assert.match(patched, /case`workspaceOpenViewer`/);
   assert.match(patched, /--always-on-top/);
   assert.match(patched, /--exit-when-workspace-gone/);
-  assert.match(patched, /spawn\(__codexCommand,__codexArgs/);
+  assert.match(patched, /require\(`node:child_process`\)\.spawn\(__codexCommand,__codexArgs/);
   assert.match(patched, /detached:!0/);
   assert.match(patched, /stdio:`ignore`/);
   assert.match(patched, /unref\?\.\(\)/);
@@ -580,7 +596,7 @@ test("main bridge patch adds an allowlisted linux-agent-workspace handler", () =
   assert.doesNotMatch(patched, /--include-hidden/);
   assert.doesNotMatch(patched, /__codexAttachScreenshot/);
   assert.doesNotMatch(patched, /data:image\/png;base64/);
-  assert.match(patched, /execFile\(__codexCommand,__codexArgs/);
+  assert.match(patched, /require\(`node:child_process`\)\.execFile\(__codexCommand,__codexArgs/);
   assert.equal(applyAgentWorkspaceMainBridgePatch(patched), patched);
   const stalePatched = patched.replace(
     '"linux-agent-workspace-copy-browser-data":async',
@@ -590,7 +606,7 @@ test("main bridge patch adds an allowlisted linux-agent-workspace handler", () =
 
   const { value, warnings } = captureWarns(() => applyAgentWorkspaceMainBridgePatch("real bundle"));
   assert.equal(value, "real bundle");
-  assert.match(warnings.join("\n"), /Could not find Node module aliases/);
+  assert.match(warnings.join("\n"), /Could not find Node fs\/path aliases/);
 });
 
 test("main bridge generator does not carry removed conversation monitor observe code", () => {

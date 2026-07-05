@@ -65,6 +65,23 @@ test("main bundle patch writes app-state wrapper marker", () => {
   assert.doesNotMatch(patched, /wrapper_status/);
 });
 
+test("main bundle patch repairs scoped child_process aliases in existing wrapper helpers", () => {
+  const source =
+    `"use strict";function open(){let __codexChild=require(\`node:child_process\`).spawn(\`xdg-open\`,[])}` +
+    `var f=require("node:fs"),p=require("node:path"),c=require("node:child_process");` +
+    `function codexLinuxWrapManagerPath(){return \`codex-update-manager\`}` +
+    `function codexLinuxWrapSpawnCheck(){try{let c=__codexChild.spawn(codexLinuxWrapManagerPath(),[\`check-wrapper\`],{stdio:\`ignore\`,detached:!0,env:process.env});c.on(\`error\`,()=>{});c.unref()}catch{}}` +
+    `function codexLinuxWrapRunPicker(){try{__codexChild.spawnSync(codexLinuxWrapManagerPath(),[\`pick-features\`,\`--json\`],{stdio:\`ignore\`,env:process.env})}catch{}}` +
+    `var handlers={"codex-linux-wrapper-updater":async(e)=>({ok:true}),"native-desktop-apps":async()=>({ok:true})};`;
+
+  const patched = applyMainBundlePatch(source);
+
+  assert.match(patched, /require\(`node:child_process`\)\.spawn\(codexLinuxWrapManagerPath\(\),\[`check-wrapper`\]/);
+  assert.match(patched, /require\(`node:child_process`\)\.spawnSync\(codexLinuxWrapManagerPath\(\),\[`pick-features`,`--json`\]/);
+  assert.doesNotMatch(patched, /__codexChild\.spawn\(codexLinuxWrapManagerPath/);
+  assert.doesNotMatch(patched, /__codexChild\.spawnSync\(codexLinuxWrapManagerPath/);
+});
+
 test("webview runtime renders dev-mode and installed-sha chips", () => {
   const patched = applyWebviewRuntimePatch("console.log('codex');");
 
