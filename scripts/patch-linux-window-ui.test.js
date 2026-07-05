@@ -2352,24 +2352,21 @@ test("recognizes the Linux removeMenu snippet as already applied", () => {
   assert.equal((patched.match(/process\.platform===`linux`&&k\.removeMenu\(\),/g) ?? []).length, 1);
 });
 
-test("suppresses the global application menu on Linux", () => {
+test("preserves the global application menu on Linux for accelerators", () => {
   const source =
     "let $e=[{role:`help`,submenu:[]}],et=n.Menu.buildFromTemplate($e);n.Menu.setApplicationMenu(et);";
   const patched = applyPatchTwice(applyLinuxApplicationMenuPatch, source);
 
-  assert.equal(
-    patched,
-    "let $e=[{role:`help`,submenu:[]}],et=n.Menu.buildFromTemplate($e);n.Menu.setApplicationMenu(process.platform===`linux`?null:et);",
-  );
+  assert.equal(patched, source);
 });
 
-test("recognizes an already Linux-suppressed application menu", () => {
+test("migrates a Linux-suppressed application menu back to the real menu", () => {
   const source =
     "let et=n.Menu.buildFromTemplate($e);n.Menu.setApplicationMenu(process.platform===`linux`?null:et);";
 
   const patched = applyPatchTwice(applyLinuxApplicationMenuPatch, source);
 
-  assert.equal(patched, source);
+  assert.equal(patched, "let et=n.Menu.buildFromTemplate($e);n.Menu.setApplicationMenu(et);");
 });
 
 test("recognizes already-applied Linux opaque background patch", () => {

@@ -372,27 +372,10 @@ function applyLinuxMenuPatch(currentSource) {
 }
 
 function applyLinuxApplicationMenuPatch(currentSource) {
-  const applicationMenuRegex =
-    /([A-Za-z_$][\w$]*)\.Menu\.setApplicationMenu\(([A-Za-z_$][\w$]*)\)/g;
-  let patchedAny = false;
-  const patchedSource = currentSource.replace(
-    applicationMenuRegex,
-    (_match, electronAlias, menuAlias) => {
-      patchedAny = true;
-      return `${electronAlias}.Menu.setApplicationMenu(process.platform===\`linux\`?null:${menuAlias})`;
-    },
+  return currentSource.replace(
+    /([A-Za-z_$][\w$]*)\.Menu\.setApplicationMenu\(process\.platform===`linux`\?null:([A-Za-z_$][\w$]*)\)/g,
+    (_match, electronAlias, menuAlias) => `${electronAlias}.Menu.setApplicationMenu(${menuAlias})`,
   );
-
-  const hasApplicationMenuCall = /[A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(/.test(currentSource);
-  const hasLinuxNullApplicationMenu =
-    /[A-Za-z_$][\w$]*\.Menu\.setApplicationMenu\(process\.platform===`linux`\?null:[A-Za-z_$][\w$]*\)/.test(
-      currentSource,
-    );
-  if (!patchedAny && hasApplicationMenuCall && !hasLinuxNullApplicationMenu) {
-    console.warn("WARN: Could not find application menu call shape — skipping Linux application menu patch");
-  }
-
-  return patchedSource;
 }
 
 function applyLinuxSetIconPatch(currentSource, iconAsset) {
