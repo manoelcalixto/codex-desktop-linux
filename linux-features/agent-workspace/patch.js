@@ -2128,10 +2128,19 @@ function patchAgentWorkspaceRouteAssets(extractedDir) {
     }
 
     try {
+      let patchedSource = currentSource;
+      if (isAgentWorkspaceSettingsSectionsBundleSource(currentSource)) {
+        try {
+          patchedSource = applyAgentWorkspaceSettingsSectionsPatch(patchedSource);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`WARN: Optional Agent Workspaces settings section patch skipped for ${candidate}: ${message}`);
+        }
+      }
       patches.push({
         filePath,
         currentSource,
-        patchedSource: applyAgentWorkspaceSettingsIndexPatch(currentSource),
+        patchedSource: applyAgentWorkspaceSettingsIndexPatch(patchedSource),
       });
     } catch (error) {
       lastError = error;
