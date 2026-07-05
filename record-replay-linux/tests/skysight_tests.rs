@@ -136,7 +136,12 @@ fn skysight_migrates_legacy_exclusions_with_daemon_path_overrides() {
 
 #[test]
 fn skysight_snapshot_creates_segment_directory_and_rollup_resources() {
+    let _guard = env_guard();
+    let old_summary_agent = env::var_os("CODEX_SKYSIGHT_SUMMARY_AGENT");
+    let old_code_home = env::var_os("CODEX_HOME");
     let temp = tempfile::tempdir().unwrap();
+    env::remove_var("CODEX_SKYSIGHT_SUMMARY_AGENT");
+    env::set_var("CODEX_HOME", temp.path().join("codex-home"));
     let paths = SkysightPaths::new(temp.path().join("runtime"), temp.path().join("resources"));
 
     let status = capture_skysight_snapshot(&paths, Some("test")).unwrap();
@@ -270,6 +275,9 @@ fn skysight_snapshot_creates_segment_directory_and_rollup_resources() {
     let stopped = stop_skysight(&paths).unwrap();
     assert_eq!(stopped.state, "stopped");
     assert!(!stopped.is_running);
+
+    restore_env("CODEX_SKYSIGHT_SUMMARY_AGENT", old_summary_agent);
+    restore_env("CODEX_HOME", old_code_home);
 }
 
 #[test]

@@ -8,6 +8,8 @@ use codex_computer_use_linux::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 use std::{
     env, fs,
     io::Write,
@@ -394,6 +396,10 @@ pub fn start_skysight(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    #[cfg(unix)]
+    {
+        command.process_group(0);
+    }
     let pid = crate::process_reaper::spawn_reaped(&mut command, "failed to spawn Skysight daemon")?;
     write_chronicle_started_pid(pid)?;
 
