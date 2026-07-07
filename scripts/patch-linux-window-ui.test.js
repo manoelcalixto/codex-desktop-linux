@@ -4648,6 +4648,20 @@ test("adds Linux desktop section to split current section metadata bundle", () =
   assert.match(patched, /Uj=\[\{slug:`general-settings`\},\{slug:`linux-desktop`\},\{slug:`import`\}/);
 });
 
+test("adds Linux desktop section to duplicate section metadata shapes in one asset", () => {
+  const source = [
+    "var e=[`general-settings`,`profile`,`keyboard-shortcuts`,`account`],r=[`general-settings`,`import`,`keyboard-shortcuts`,`usage`];",
+    "var Bj=`general-settings.profile.keyboard-shortcuts`.split(`.`),Cj=`general-settings.import.keyboard-shortcuts`.split(`.`);",
+    "var Uj=[{slug:`general-settings`},{slug:`profile`},{slug:`keyboard-shortcuts`}],Vj=[{slug:`general-settings`},{slug:`appearance`},{slug:`keyboard-shortcuts`}];",
+  ].join("");
+
+  const patched = applyPatchTwice(applyLinuxDesktopSettingsSectionsPatch, source);
+
+  assert.equal([...patched.matchAll(/=\[`general-settings`,`linux-desktop`,/g)].length, 2);
+  assert.equal([...patched.matchAll(/`general-settings\.linux-desktop\.[^`]*keyboard-shortcuts[^`]*`\.split\(`\.`\)/g)].length, 2);
+  assert.equal([...patched.matchAll(/=\[\{slug:`general-settings`\},\{slug:`linux-desktop`\},/g)].length, 2);
+});
+
 test("adds the Linux desktop section title when the JSX message component identifier drifts", () => {
   const patched = applyLinuxDesktopSettingsSharedPatch(
     settingsSharedBundleWithDriftingJsxAliasFixture(),

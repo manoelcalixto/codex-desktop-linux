@@ -816,63 +816,32 @@ function applyKeybindsSettingsSectionsPatch(currentSource) {
 
 function applyLinuxDesktopSettingsSectionsPatch(currentSource) {
   let patchedSource = currentSource;
-  const arrayOrderPattern = /[A-Za-z_$][\w$]*=\[`general-settings`,/;
-  const patchedArrayOrderPattern = /=\[`general-settings`,`linux-desktop`/;
-  const splitOrderPattern = /`general-settings\.[^`]*keyboard-shortcuts[^`]*`\.split\(`\.`\)/;
-  const patchedSplitOrderPattern = /`general-settings\.linux-desktop\.[^`]*`\.split\(`\.`\)/;
-  const objectSlugListPattern = /[A-Za-z_$][\w$]*=\[\{slug:(?:`general-settings`|[A-Za-z_$][\w$]*)\},/;
-  const patchedObjectSlugListPattern = /[A-Za-z_$][\w$]*=\[\{slug:(?:`general-settings`|[A-Za-z_$][\w$]*)\},\{slug:`linux-desktop`\},/;
+  const unpatchedArrayOrderPattern = /([A-Za-z_$][\w$]*=\[`general-settings`,)(?!`linux-desktop`,)/g;
+  const unpatchedSplitOrderPattern = /(`general-settings\.)(?!linux-desktop\.)([^`]*keyboard-shortcuts[^`]*`\.split\(`\.`\))/g;
+  const unpatchedObjectSlugListPattern = /([A-Za-z_$][\w$]*=\[\{slug:(?:`general-settings`|[A-Za-z_$][\w$]*)\},)(?!\{slug:`linux-desktop`\},)/g;
+  const hasUnpatchedEligibleSectionShape = (source) =>
+    /[A-Za-z_$][\w$]*=\[`general-settings`,(?!`linux-desktop`,)/.test(source) ||
+    /`general-settings\.(?!linux-desktop\.)[^`]*keyboard-shortcuts[^`]*`\.split\(`\.`\)/.test(source) ||
+    /[A-Za-z_$][\w$]*=\[\{slug:(?:`general-settings`|[A-Za-z_$][\w$]*)\},(?!\{slug:`linux-desktop`\},)/.test(source);
 
-  if (
-    (!arrayOrderPattern.test(currentSource) || patchedArrayOrderPattern.test(patchedSource)) &&
-    (!splitOrderPattern.test(currentSource) || patchedSplitOrderPattern.test(patchedSource)) &&
-    (!objectSlugListPattern.test(currentSource) || patchedObjectSlugListPattern.test(patchedSource))
-  ) {
+  if (!hasUnpatchedEligibleSectionShape(patchedSource)) {
     return patchedSource;
   }
 
-  if (!patchedArrayOrderPattern.test(patchedSource)) {
-    const arrayInsertPattern = /([A-Za-z_$][\w$]*=\[`general-settings`,)(?!`linux-desktop`)/;
-    if (arrayInsertPattern.test(patchedSource)) {
-      patchedSource = patchedSource.replace(arrayInsertPattern, "$1`linux-desktop`,");
-    }
-  }
+  patchedSource = patchedSource.replace(
+    unpatchedArrayOrderPattern,
+    "$1`linux-desktop`,",
+  );
+  patchedSource = patchedSource.replace(
+    unpatchedSplitOrderPattern,
+    "$1linux-desktop.$2",
+  );
+  patchedSource = patchedSource.replace(
+    unpatchedObjectSlugListPattern,
+    "$1{slug:`linux-desktop`},",
+  );
 
-  if (!patchedSplitOrderPattern.test(patchedSource)) {
-    const splitInsertPattern = /(`general-settings\.)(?!linux-desktop\.)([^`]*keyboard-shortcuts[^`]*`\.split\(`\.`\))/;
-    if (splitInsertPattern.test(patchedSource)) {
-      patchedSource = patchedSource.replace(splitInsertPattern, "$1linux-desktop.$2");
-    }
-  }
-
-  if (!patchedObjectSlugListPattern.test(patchedSource)) {
-    const sectionsNeedle = "var e=`general-settings`,t=`mcp-settings`,n=[{slug:e},";
-    const sectionsPatch = "var e=`general-settings`,t=`mcp-settings`,n=[{slug:e},{slug:`linux-desktop`},";
-    if (patchedSource.includes(sectionsNeedle)) {
-      patchedSource = patchedSource.replace(sectionsNeedle, sectionsPatch);
-    } else {
-      const currentNeedle = "n=[{slug:e},{slug:`appearance`}";
-      if (patchedSource.includes(currentNeedle)) {
-        patchedSource = patchedSource.replace(currentNeedle, "n=[{slug:e},{slug:`linux-desktop`},{slug:`appearance`}");
-      } else {
-        const literalNeedle = "n=[{slug:`general-settings`},{slug:`appearance`}";
-        if (patchedSource.includes(literalNeedle)) {
-          patchedSource = patchedSource.replace(literalNeedle, "n=[{slug:`general-settings`},{slug:`linux-desktop`},{slug:`appearance`}");
-        } else {
-          const generalFirstPattern = /([A-Za-z_$][\w$]*=\[\{slug:(?:`general-settings`|[A-Za-z_$][\w$]*)\},)/;
-          if (generalFirstPattern.test(patchedSource)) {
-            patchedSource = patchedSource.replace(generalFirstPattern, "$1{slug:`linux-desktop`},");
-          }
-        }
-      }
-    }
-  }
-
-  if (
-    (!arrayOrderPattern.test(currentSource) || patchedArrayOrderPattern.test(patchedSource)) &&
-    (!splitOrderPattern.test(currentSource) || patchedSplitOrderPattern.test(patchedSource)) &&
-    (!objectSlugListPattern.test(currentSource) || patchedObjectSlugListPattern.test(patchedSource))
-  ) {
+  if (!hasUnpatchedEligibleSectionShape(patchedSource)) {
     return patchedSource;
   }
 
