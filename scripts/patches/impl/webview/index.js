@@ -16,6 +16,11 @@ const LINUX_SAFE_MONOSPACE_FONT_STACK =
   "\"Noto Sans Mono\", \"DejaVu Sans Mono\", \"Liberation Mono\", \"Ubuntu Mono\", ui-monospace, \"SFMono-Regular\", \"SF Mono\", Menlo, Consolas, monospace";
 const LINUX_TOOLTIP_COLLISION_PADDING_TOP = 44;
 const LINUX_WINDOW_CONTROLS_SAFE_AREA_RIGHT = 138;
+const LINUX_APP_SERVER_CONVERSATION_HYDRATION_THREAD_RUNTIME_MARKER = "codexLinuxRemoteMobileThreadRuntimeStatus";
+const LINUX_APP_SERVER_CONVERSATION_HYDRATION_UNKNOWN_TURN_MARKER = "codexLinuxRemoteMobileHydrateUnknownTurn";
+const LINUX_APP_SERVER_CONVERSATION_HYDRATION_QUEUE_MARKER = "codexLinuxRemoteMobileNotificationQueue";
+const LINUX_APP_SERVER_CONVERSATION_HYDRATION_IN_FLIGHT_MARKER = "codexLinuxRemoteMobileHydrationInFlight";
+const LINUX_APP_SERVER_CONVERSATION_HYDRATION_LATE_EVENT_MARKER = "codexLinuxRemoteMobileHydrateLateEvent";
 
 function applyLinuxSafeMonospaceFontStackPatch(currentSource) {
   const safeLinuxMonoFontPattern =
@@ -908,19 +913,116 @@ function applyLinuxAppServerBackfillWaitPatch(currentSource) {
   return patchedSource;
 }
 
+function buildLateUnknownConversationHydrationReplacement(eventName, conversationIdVar, loggerVar) {
+  const pendingMapVar = "codexLinuxRemoteMobilePendingMap";
+  const queueVar = "codexLinuxRemoteMobileQueue";
+  const inFlightVar = "codexLinuxRemoteMobileInFlight";
+  const readVar = "codexLinuxRemoteMobileRead";
+  return (
+    `if(!this.conversations.get(${conversationIdVar})){/*${LINUX_APP_SERVER_CONVERSATION_HYDRATION_LATE_EVENT_MARKER}*/` +
+    `let ${pendingMapVar}=this.codexLinuxRemoteMobilePendingNotifications??=new Map,${queueVar}=${pendingMapVar}.get(${conversationIdVar});` +
+    `${queueVar}||(${queueVar}=[],${pendingMapVar}.set(${conversationIdVar},${queueVar})),${queueVar}.push(n);` +
+    `let ${inFlightVar}=this.codexLinuxRemoteMobileInFlightHydrations??=new Set;` +
+    `if(${inFlightVar}.has(${conversationIdVar})){${loggerVar}.warning(\`Queueing ${eventName} for hydrating conversation\`,{safe:{conversationId:${conversationIdVar},queuedNotificationCount:${queueVar}.length},sensitive:{}});break}` +
+    `${loggerVar}.warning(\`Hydrating conversation for ${eventName}\`,{safe:{conversationId:${conversationIdVar},queuedNotificationCount:${queueVar}.length},sensitive:{}});` +
+    `let ${readVar}=(s=0)=>this.readThread(${conversationIdVar},{includeTurns:!0}).then(e=>{let t=e?.thread??e,c=this.codexLinuxRemoteMobilePendingNotifications?.get(${conversationIdVar})??[],codexLinuxRemoteMobileTurns=Array.isArray(e?.turns)?e.turns:Array.isArray(t?.turns)?t.turns:null;` +
+    `if(!t||!Array.isArray(codexLinuxRemoteMobileTurns)||codexLinuxRemoteMobileTurns.length===0){if(s<12){${loggerVar}.warning(\`Retrying hydration for missing conversation\`,{safe:{conversationId:${conversationIdVar},queuedNotificationCount:c.length,attempt:s+1},sensitive:{}}),setTimeout(()=>${readVar}(s+1),250);return}` +
+    `this.codexLinuxRemoteMobilePendingNotifications?.delete(${conversationIdVar}),this.codexLinuxRemoteMobileInFlightHydrations?.delete(${conversationIdVar}),${loggerVar}.warning(\`Skipping hydration for missing conversation\`,{safe:{conversationId:${conversationIdVar},queuedNotificationCount:c.length},sensitive:{}});return}` +
+    `this.upsertConversationFromThread(t),this.codexLinuxRemoteMobilePendingNotifications?.delete(${conversationIdVar}),this.codexLinuxRemoteMobileInFlightHydrations?.delete(${conversationIdVar});for(let e of c)this.onNotification(e.method,e.params)})` +
+    `.catch(e=>{if(s<12){${loggerVar}.warning(\`Retrying hydration for ${eventName}\`,{safe:{conversationId:${conversationIdVar},attempt:s+1},sensitive:{error:e}}),setTimeout(()=>${readVar}(s+1),250);return}` +
+    `this.codexLinuxRemoteMobilePendingNotifications?.delete(${conversationIdVar}),this.codexLinuxRemoteMobileInFlightHydrations?.delete(${conversationIdVar}),${loggerVar}.error(\`Failed to hydrate conversation for ${eventName}\`,{safe:{conversationId:${conversationIdVar}},sensitive:{error:e}})});` +
+    `${inFlightVar}.add(${conversationIdVar}),${readVar}();break}`
+  );
+}
+
+function applyLinuxAppServerConversationHydrationPatch(currentSource) {
+  let patchedSource = currentSource;
+
+  if (!patchedSource.includes(LINUX_APP_SERVER_CONVERSATION_HYDRATION_THREAD_RUNTIME_MARKER)) {
+    const runtimeNeedle =
+      /([A-Za-z_$][\w$]*)\.resumeState===`needs_resume`&&\(\1\.threadRuntimeStatus=([A-Za-z_$][\w$]*)\)/u;
+    if (runtimeNeedle.test(patchedSource)) {
+      patchedSource = patchedSource.replace(
+        runtimeNeedle,
+        (_needle, conversationVar, runtimeVar) =>
+          `/*${LINUX_APP_SERVER_CONVERSATION_HYDRATION_THREAD_RUNTIME_MARKER}*/(${conversationVar}.resumeState===\`needs_resume\`||${runtimeVar}?.type===\`active\`||${runtimeVar}?.type===\`idle\`)&&(${conversationVar}.threadRuntimeStatus=${runtimeVar})`,
+      );
+    } else if (
+      patchedSource.includes("threadRuntimeStatus:e.threadRuntimeStatus") &&
+      patchedSource.includes("t===`needs_resume`?n?.type===`active`")
+    ) {
+      // Current upstream already preserves threadRuntimeStatus on summaries.
+    } else if (patchedSource.includes("threadRuntimeStatus") && patchedSource.includes("resumeState")) {
+      console.warn(
+        "WARN: Could not find app-server conversation runtime-status needle — skipping Linux app-server hydration runtime-status patch",
+      );
+    }
+  }
+
+  if (!patchedSource.includes(LINUX_APP_SERVER_CONVERSATION_HYDRATION_QUEUE_MARKER)) {
+    const unknownTurnNeedle =
+      /(let\{threadId:([A-Za-z_$][\w$]*),turn:[A-Za-z_$][\w$]*\}=([A-Za-z_$][\w$]*)\.params,([A-Za-z_$][\w$]*)=([A-Za-z_$][\w$]*)\(\2\);)if\(!this\.conversations\.get\(\4\)\)\{([A-Za-z_$][\w$]*)\.error\(`Received turn\/started for unknown conversation`,\{safe:\{conversationId:\4\},sensitive:\{\}\}\);break\}/u;
+    const unknownTurnReplacement =
+      (_needle, prefix, _threadIdParamVar, notificationVar, conversationIdVar, normalizerFn, loggerVar) =>
+        `${prefix}if(!this.conversations.get(${conversationIdVar})){/*${LINUX_APP_SERVER_CONVERSATION_HYDRATION_UNKNOWN_TURN_MARKER}*//*${LINUX_APP_SERVER_CONVERSATION_HYDRATION_QUEUE_MARKER}*//*${LINUX_APP_SERVER_CONVERSATION_HYDRATION_IN_FLIGHT_MARKER}*/let l=${notificationVar}.params?.turn?.threadId??${notificationVar}.params?.thread?.id,d=l!=null?${normalizerFn}(l):null,u=${notificationVar}.params?.turn?.id??${notificationVar}.params?.turnId;if(d==null||u!=null&&d===${normalizerFn}(u)){${loggerVar}.warning(\`Skipping hydration for ambiguous turn/started\`,{safe:{conversationId:${conversationIdVar},resolvedConversationId:d,turnId:u??null},sensitive:{}});break}${notificationVar}={...${notificationVar},params:{...${notificationVar}.params,threadId:l}};if(this.conversations.get(d)){this.onNotification(${notificationVar}.method,${notificationVar}.params);break}let i=this.codexLinuxRemoteMobilePendingNotifications??=new Map,a=i.get(d);a||(a=[],i.set(d,a));let p=u!=null?a.findIndex(e=>{let t=e.params?.turn?.id??e.params?.turnId;return e.method===${notificationVar}.method&&t!=null&&${normalizerFn}(t)===${normalizerFn}(u)}):-1;p>=0?a[p]=${notificationVar}:a.push(${notificationVar});let h=this.codexLinuxRemoteMobileInFlightHydrations??=new Set;if(h.has(d)){${loggerVar}.warning(\`Queueing turn/started for hydrating conversation\`,{safe:{conversationId:d,queuedNotificationCount:a.length,dedupedNotification:p>=0},sensitive:{}});break}${loggerVar}.warning(\`Hydrating conversation for turn/started\`,{safe:{conversationId:d,queuedNotificationCount:a.length},sensitive:{}});let o=(s=0)=>this.readThread(d,{includeTurns:!0}).then(e=>{let t=e?.thread??e,c=this.codexLinuxRemoteMobilePendingNotifications?.get(d)??[],codexLinuxRemoteMobileTurns=Array.isArray(e?.turns)?e.turns:Array.isArray(t?.turns)?t.turns:null;if(!t||!Array.isArray(codexLinuxRemoteMobileTurns)||codexLinuxRemoteMobileTurns.length===0){if(s<12){${loggerVar}.warning(\`Retrying hydration for missing conversation\`,{safe:{conversationId:d,queuedNotificationCount:c.length,attempt:s+1},sensitive:{}}),setTimeout(()=>o(s+1),250);return}this.codexLinuxRemoteMobilePendingNotifications?.delete(d),this.codexLinuxRemoteMobileInFlightHydrations?.delete(d),${loggerVar}.warning(\`Skipping hydration for missing conversation\`,{safe:{conversationId:d,queuedNotificationCount:c.length},sensitive:{}});return}this.upsertConversationFromThread(t),this.codexLinuxRemoteMobilePendingNotifications?.delete(d),this.codexLinuxRemoteMobileInFlightHydrations?.delete(d);for(let e of c)this.onNotification(e.method,e.params)}).catch(e=>{if(s<12){${loggerVar}.warning(\`Retrying hydration for turn/started\`,{safe:{conversationId:d,attempt:s+1},sensitive:{error:e}}),setTimeout(()=>o(s+1),250);return}this.codexLinuxRemoteMobilePendingNotifications?.delete(d),this.codexLinuxRemoteMobileInFlightHydrations?.delete(d),${loggerVar}.error(\`Failed to hydrate conversation for turn/started\`,{safe:{conversationId:d},sensitive:{error:e}})});h.add(d),o();break}`;
+
+    if (unknownTurnNeedle.test(patchedSource)) {
+      patchedSource = patchedSource.replace(unknownTurnNeedle, unknownTurnReplacement);
+    } else if (patchedSource.includes("Received turn/started for unknown conversation")) {
+      console.warn(
+        "WARN: Could not find unknown turn/started needle — skipping Linux app-server conversation hydration patch",
+      );
+    }
+
+    const unknownEventGuards = [
+      {
+        eventName: "item/started",
+        needle:
+          /if\(!this\.conversations\.get\(([A-Za-z_$][\w$]*)\)\)\{([A-Za-z_$][\w$]*)\.error\(`Received item\/started for unknown conversation`,\{safe:\{conversationId:\1\},sensitive:\{\}\}\);break\}/u,
+      },
+      {
+        eventName: "item/completed",
+        needle:
+          /if\(!this\.conversations\.get\(([A-Za-z_$][\w$]*)\)\)\{([A-Za-z_$][\w$]*)\.error\(`Received item\/completed for unknown conversation`,\{safe:\{conversationId:\1\},sensitive:\{\}\}\);break\}/u,
+      },
+      {
+        eventName: "turn/completed",
+        needle:
+          /if\(!this\.conversations\.get\(([A-Za-z_$][\w$]*)\)\)\{([A-Za-z_$][\w$]*)\.error\(`Received turn\/completed for unknown conversation`,\{safe:\{conversationId:\1\},sensitive:\{\}\}\);break\}/u,
+      },
+    ];
+
+    for (const { eventName, needle } of unknownEventGuards) {
+      if (needle.test(patchedSource)) {
+        patchedSource = patchedSource.replace(
+          needle,
+          (_match, conversationIdVar, loggerVar) =>
+            buildLateUnknownConversationHydrationReplacement(eventName, conversationIdVar, loggerVar),
+        );
+      } else if (patchedSource.includes(`Received ${eventName} for unknown conversation`)) {
+        console.warn(
+          `WARN: Could not find unknown ${eventName} needle — skipping Linux app-server conversation ${eventName} hydration patch`,
+        );
+      }
+    }
+  }
+
+  return patchedSource;
+}
+
 function applyLinuxCompletedItemRecoveryPatch(currentSource) {
   if (currentSource.includes("codexLinuxCompletedItemExists=")) {
     return currentSource;
   }
 
   const completedItemDropPattern =
-    /Mut\(([A-Za-z_$][\w$]*)\)&&\(([A-Za-z_$][\w$]*)\.firstTurnWorkItemStartedAtMs=\2\.firstTurnWorkItemStartedAtMs\?\?Date\.now\(\)\),!\(\1\.type!==`subAgentActivity`&&!TR\(\2,\1\.id,\1\.type\)\)&&\(\1\.type,HI\(\2,([A-Za-z_$][\w$]*)\)\)/u;
+    /yV\(([A-Za-z_$][\w$]*)\)&&\(([A-Za-z_$][\w$]*)\.firstTurnWorkItemStartedAtMs=\2\.firstTurnWorkItemStartedAtMs\?\?Date\.now\(\)\),!\(\1\.type!==`subAgentActivity`&&!LB\(\2,\1\.id,\1\.type\)\)&&\(\1\.type,bP\(\2,([A-Za-z_$][\w$]*)\)\)/u;
 
   if (completedItemDropPattern.test(currentSource)) {
     return currentSource.replace(
       completedItemDropPattern,
       (_match, completedItemVar, turnVar, viewItemVar) =>
-        `Mut(${completedItemVar})&&(${turnVar}.firstTurnWorkItemStartedAtMs=${turnVar}.firstTurnWorkItemStartedAtMs??Date.now());let codexLinuxCompletedItemExists=${turnVar}.items.some(e=>e.id===${viewItemVar}.id);if(${completedItemVar}.type!==\`subAgentActivity\`&&codexLinuxCompletedItemExists&&!TR(${turnVar},${completedItemVar}.id,${completedItemVar}.type))return;HI(${turnVar},${viewItemVar})`,
+        `yV(${completedItemVar})&&(${turnVar}.firstTurnWorkItemStartedAtMs=${turnVar}.firstTurnWorkItemStartedAtMs??Date.now());let codexLinuxCompletedItemExists=${turnVar}.items.some(e=>e.id===${viewItemVar}.id);if(${completedItemVar}.type!==\`subAgentActivity\`&&codexLinuxCompletedItemExists&&!LB(${turnVar},${completedItemVar}.id,${completedItemVar}.type))return;bP(${turnVar},${viewItemVar})`,
     );
   }
 
@@ -1945,6 +2047,7 @@ function patchCommentPreloadBundle(extractedDir) {
 module.exports = {
   applyBrowserAnnotationScreenshotPatch,
   applyLinuxAppServerBackfillWaitPatch,
+  applyLinuxAppServerConversationHydrationPatch,
   applyLinuxCompletedItemRecoveryPatch,
   applyLinuxRemoteTerminalStatusRecoveryPatch,
   applyLinuxAppServerFeatureEnablementPatch,

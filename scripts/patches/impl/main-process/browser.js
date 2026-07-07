@@ -11,7 +11,7 @@ function applyBrowserUseNodeReplApprovalPatch(currentSource) {
   const approvalPatch =
     "startup_timeout_sec:120,tools:{js:{approval_mode:`approve`}},env:{";
   const needle = "startup_timeout_sec:120,env:{";
-  const runtimeFactoryMethods = String.raw`Dn|Pn|Fa|La|Ha|\$a`;
+  const runtimeFactoryMethods = String.raw`Dn|Pn|Fa|La|Ha|vo|\$a`;
   let patchedSource = currentSource;
   let patchedTrustedHashes = false;
   if (patchedSource.includes(needle)) {
@@ -325,7 +325,7 @@ function buildLinuxExternalOpenHelpers() {
     `return __codexEnv}` +
     `function codexLinuxLaunchExternalUrl(__codexUrl){return new Promise((__codexResolve,__codexReject)=>{let __codexSettled=!1,__codexTimer;try{let __codexChild=require(\`node:child_process\`).spawn(\`xdg-open\`,[__codexUrl],{detached:!0,stdio:\`ignore\`,windowsHide:!0,env:codexLinuxExternalOpenEnv()});__codexTimer=setTimeout(()=>{__codexSettled=!0,__codexChild.unref?.(),__codexResolve()},400),__codexTimer.unref?.(),__codexChild.on(\`error\`,__codexError=>{__codexSettled||(clearTimeout(__codexTimer),__codexReject(__codexError))}),__codexChild.on(\`close\`,__codexCode=>{__codexSettled||(clearTimeout(__codexTimer),__codexCode===0?__codexResolve():__codexReject(Error(\`Linux external open failed\`)))})}catch(__codexError){clearTimeout(__codexTimer),__codexReject(__codexError)}})}` +
     `function codexLinuxOpenExternalWithFallback(__codexOriginalOpenExternal,__codexUrl){return codexLinuxLaunchExternalUrl(__codexUrl).catch(()=>__codexOriginalOpenExternal(__codexUrl))}` +
-    `function codexLinuxPatchExternalOpen(__codexElectron){if(process.platform!==\`linux\`||__codexElectron?.shell==null||typeof __codexElectron.shell.openExternal!==\`function\`)return __codexElectron;if(__codexElectron.shell.openExternal.__codexLinuxExternalOpenPatched)return __codexElectron;let __codexOriginalOpenExternal=__codexElectron.shell.openExternal.bind(__codexElectron.shell);async function __codexOpenExternal(__codexUrl,__codexOptions){if(typeof __codexUrl===\`string\`&&__codexOptions==null)return codexLinuxOpenExternalWithFallback(__codexOriginalOpenExternal,__codexUrl);return __codexOriginalOpenExternal(__codexUrl,__codexOptions)}__codexOpenExternal.__codexLinuxExternalOpenPatched=!0,__codexElectron.shell.openExternal=__codexOpenExternal;return __codexElectron}`
+    `function codexLinuxPatchExternalOpen(__codexElectron){if(process.platform!==\`linux\`||__codexElectron?.shell==null||typeof __codexElectron.shell.openExternal!==\`function\`)return __codexElectron;if(__codexElectron.shell.openExternal.__codexLinuxExternalOpenPatched)return __codexElectron;if(process.env.CODEX_LINUX_DISABLE_EXTERNAL_OPEN_PATCH===\`1\`)return __codexElectron;let __codexOriginalOpenExternal=__codexElectron.shell.openExternal.bind(__codexElectron.shell);async function __codexOpenExternal(__codexUrl,__codexOptions){if(typeof __codexUrl===\`string\`&&__codexOptions==null)return codexLinuxOpenExternalWithFallback(__codexOriginalOpenExternal,__codexUrl);return __codexOriginalOpenExternal(__codexUrl,__codexOptions)}__codexOpenExternal.__codexLinuxExternalOpenPatched=!0,__codexElectron.shell.openExternal=__codexOpenExternal;return __codexElectron}`
   );
 }
 

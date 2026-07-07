@@ -394,6 +394,9 @@ package. The daily-driver flow remains `install.sh` plus a native package plus
   Historical Wayland/X11 input-focus investigation for issue #569.
 - `docs/webview-server-evaluation.md`
   Decision record for the future local webview server model.
+- `docs/launcher-performance.md`
+  Decision record for launcher Electron performance defaults and the
+  alternatives that were reviewed and deliberately left unchanged.
 
 ## Generated Artifacts
 
