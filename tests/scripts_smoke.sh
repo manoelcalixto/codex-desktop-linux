@@ -374,6 +374,7 @@ SCRIPT
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/node-runtime.sh"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/linux-update-bridge-patch.js"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/patch-report.js"
+    assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/upstream-dmg-intel.js"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/rebuild-report.sh"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/build-info.js"
     assert_file_exists "$pkg_root/opt/codex-desktop/update-builder/scripts/lib/build-info.sh"
