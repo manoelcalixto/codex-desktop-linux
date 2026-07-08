@@ -2433,6 +2433,39 @@ is_wslg_session() {
     [ -n "${DISPLAY:-}" ] && [ -e /mnt/wslg ]
 }
 
+gnome_desktop_detected() {
+    case "${XDG_CURRENT_DESKTOP:-}:${XDG_SESSION_DESKTOP:-}:${DESKTOP_SESSION:-}" in
+        *GNOME*|*gnome*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+connected_drm_monitor_count() {
+    local drm_root="${CODEX_DRM_CLASS_ROOT:-/sys/class/drm}"
+    local status_file status count=0
+
+    [ -d "$drm_root" ] || return 1
+
+    for status_file in "$drm_root"/*/status; do
+        [ -f "$status_file" ] || continue
+        IFS= read -r status < "$status_file" || continue
+        [ "$status" = "connected" ] || continue
+        count=$((count + 1))
+    done
+
+    [ "$count" -gt 0 ] || return 1
+    printf '%s\n' "$count"
+}
+
+gnome_wayland_multi_monitor_detected() {
+    local count
+
+    [ "${XDG_SESSION_TYPE:-}" = "wayland" ] || return 1
+    gnome_desktop_detected || return 1
+    count="$(connected_drm_monitor_count)" || return 1
+    [ "$count" -gt 1 ]
+}
+
 normalize_linux_rendering_mode() {
     case "${CODEX_LINUX_RENDERING_MODE:-auto}" in
         auto|default|wslg|wayland-gpu)
@@ -2648,6 +2681,10 @@ apply_electron_rendering_profile() {
         auto)
             if [ "$ELECTRON_WSLG_DETECTED" -eq 1 ]; then
                 ELECTRON_RENDERING_MODE="wslg"
+            elif [ "$ELECTRON_PLATFORM_EXPLICIT" -eq 0 ] &&
+                [ "$ELECTRON_OZONE_SWITCH_IN_ARGS" -eq 0 ] &&
+                gnome_wayland_multi_monitor_detected; then
+                ELECTRON_RENDERING_MODE="gnome-wayland-multi-monitor"
             else
                 ELECTRON_RENDERING_MODE="default"
             fi
@@ -2663,6 +2700,13 @@ apply_electron_rendering_profile() {
             return 0
             ;;
     esac
+
+    if [ "$ELECTRON_RENDERING_MODE" = "gnome-wayland-multi-monitor" ]; then
+        ELECTRON_OZONE_PLATFORM="x11"
+        ELECTRON_OZONE_HINT=""
+        echo "Detected GNOME Wayland multi-monitor session; forcing --ozone-platform=x11 for stable window scale/maximize behavior. Set CODEX_OZONE_PLATFORM=wayland or CODEX_LINUX_RENDERING_MODE=default to opt out."
+        return 0
+    fi
 
     [ "$ELECTRON_RENDERING_MODE" = "wslg" ] || return 0
 

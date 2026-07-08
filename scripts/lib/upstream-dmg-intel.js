@@ -23,6 +23,7 @@ const ACTIONABLE_CLASSIFICATIONS = new Set([
   "REMOVED",
   "NEW_UPSTREAM_CAPABILITY",
   "PATCH_BROKEN",
+  "PATCH_INTEGRITY_BROKEN",
   "PATCH_REVIEW",
   "LINUX_SUBSTRATE_GAP",
   "PROTECTED_SURFACE_PARTIAL",
@@ -55,6 +56,10 @@ function normalizePath(value) {
 
 function toRegex(pattern) {
   return pattern instanceof RegExp ? pattern : new RegExp(pattern, "i");
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function matchAny(patterns, value) {
@@ -682,6 +687,7 @@ function extractProtectedSurfaces({ inventory, registry, repoRoot = process.cwd(
   const bridgeMap = createBridgeMap(inventory);
   const pluginMap = createPluginMap(inventory);
   const nativeBinaryMap = createNativeBinaryMap(inventory, registry);
+  const postPatchIntegrity = findPostPatchIntegrityFindings(inventory);
   const surfaces = (registry.surfaces ?? []).map((surface) => {
     const evidence = fileEvidenceForSurface(inventory, surface).sort((a, b) => a.path.localeCompare(b.path));
     const anchors = evaluateRequiredAnchors(inventory, surface, { bridgeMap, pluginMap, nativeBinaryMap });
@@ -721,6 +727,7 @@ function extractProtectedSurfaces({ inventory, registry, repoRoot = process.cwd(
     bridgeMap,
     pluginMap,
     nativeBinaryMap,
+    postPatchIntegrity,
   };
 }
 
@@ -932,6 +939,94 @@ function createNativeBinaryMap(inventory, registry = null) {
   return { binaries };
 }
 
+const LINUX_SETTINGS_PATCH_SYMBOL_PATTERN = /\bcodexLinux[A-Za-z0-9_$]*SettingsIcon\b/g;
+
+function segmentDeclaresSymbol(segment, symbol) {
+  const escaped = escapeRegExp(symbol);
+  return new RegExp(`^\\s*${escaped}(?![A-Za-z0-9_$])`).test(segment);
+}
+
+function hasVariableDeclarator(source, symbol) {
+  const keywordPattern = /\b(?:var|let|const)\b/g;
+  let match;
+  while ((match = keywordPattern.exec(source)) != null) {
+    let segmentStart = keywordPattern.lastIndex;
+    let depth = 0;
+    let quote = null;
+    let escaped = false;
+    let terminated = false;
+    for (let index = segmentStart; index < source.length; index += 1) {
+      const char = source[index];
+      if (quote != null) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === "\\") {
+          escaped = true;
+        } else if (char === quote) {
+          quote = null;
+        }
+        continue;
+      }
+      if (char === '"' || char === "'" || char === "`") {
+        quote = char;
+        continue;
+      }
+      if (char === "(" || char === "[" || char === "{") {
+        depth += 1;
+        continue;
+      }
+      if (char === ")" || char === "]" || char === "}") {
+        depth = Math.max(0, depth - 1);
+        continue;
+      }
+      if (depth === 0 && (char === "," || char === ";")) {
+        if (segmentDeclaresSymbol(source.slice(segmentStart, index), symbol)) {
+          return true;
+        }
+        if (char === ";") {
+          terminated = true;
+          break;
+        }
+        segmentStart = index + 1;
+      }
+    }
+    if (!terminated && segmentDeclaresSymbol(source.slice(segmentStart), symbol)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function hasLocalPatchSymbolDeclaration(source, symbol) {
+  const escaped = escapeRegExp(symbol);
+  return (
+    new RegExp(`\\bfunction\\s+${escaped}\\s*\\(`).test(source) ||
+    hasVariableDeclarator(source, symbol)
+  );
+}
+
+function findPostPatchIntegrityFindings(inventory) {
+  const findings = [];
+  for (const file of inventory.files) {
+    if (file.text == null) {
+      continue;
+    }
+    const symbols = [...new Set(file.text.match(LINUX_SETTINGS_PATCH_SYMBOL_PATTERN) ?? [])];
+    for (const symbol of symbols) {
+      if (hasLocalPatchSymbolDeclaration(file.text, symbol)) {
+        continue;
+      }
+      findings.push({
+        path: file.relativePath,
+        reason: "Linux settings patch symbol is referenced without a local declaration",
+        snippet: textSnippet(file.text, symbol),
+        symbol,
+      });
+    }
+  }
+  return findings.sort((a, b) => `${a.symbol}:${a.path}`.localeCompare(`${b.symbol}:${b.path}`));
+}
+
 function classifySurfaceDrift({ baselineSurface, candidateSurface }) {
   const baselinePresent = baselineSurface?.status === "PRESENT";
   const candidatePresent = candidateSurface?.status === "PRESENT";
@@ -993,6 +1088,31 @@ function patchFindingsBySurface(patchReport, surfacesById = {}) {
     }
   }
   return map;
+}
+
+function postPatchIntegrityFindingsFromReport(patchReport) {
+  const findings = patchReport?.postPatchIntegrity?.findings ?? patchReport?.postPatchIntegrity ?? [];
+  return Array.isArray(findings) ? findings : [];
+}
+
+function mergedPostPatchIntegrityFindings(...findingGroups) {
+  const merged = new Map();
+  for (const finding of findingGroups.flat()) {
+    if (finding == null || typeof finding !== "object") {
+      continue;
+    }
+    const symbol = finding.symbol ?? "unknown-symbol";
+    const pathKey = finding.path ?? "unknown-path";
+    const reason = finding.reason ?? "Linux settings patch symbol is referenced without a local declaration";
+    const key = `${symbol}\0${pathKey}\0${finding.snippet ?? ""}`;
+    merged.set(key, {
+      path: pathKey,
+      reason,
+      snippet: finding.snippet ?? null,
+      symbol,
+    });
+  }
+  return [...merged.values()].sort((a, b) => `${a.symbol}:${a.path}`.localeCompare(`${b.symbol}:${b.path}`));
 }
 
 function compareProtectedSurfaces({ baseline, candidate, patchReport = null } = {}) {
@@ -1058,6 +1178,21 @@ function compareProtectedSurfaces({ baseline, candidate, patchReport = null } = 
         });
       }
     }
+  }
+  const postPatchIntegrity = mergedPostPatchIntegrityFindings(
+    candidate?.postPatchIntegrity ?? [],
+    postPatchIntegrityFindingsFromReport(patchReport),
+  );
+  if (postPatchIntegrity.length > 0) {
+    surfaceDrift.push({
+      surfaceId: "linux_patch_integrity",
+      title: "Linux post-patch JavaScript integrity",
+      category: "patch-integrity",
+      classification: "PATCH_INTEGRITY_BROKEN",
+      findingCount: postPatchIntegrity.length,
+      findings: postPatchIntegrity.slice(0, 20),
+      omittedFindingCount: Math.max(0, postPatchIntegrity.length - 20),
+    });
   }
 
   const classificationCounts = {};
@@ -1653,6 +1788,7 @@ module.exports = {
   createPluginMap,
   compareMaps,
   extractProtectedSurfaces,
+  findPostPatchIntegrityFindings,
   renderActionPlanMarkdown,
   renderDriftMarkdown,
   resolveBaselinePath,
