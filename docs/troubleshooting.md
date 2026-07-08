@@ -94,6 +94,13 @@ CODEX_OZONE_PLATFORM=x11 codex-desktop
 CODEX_OZONE_PLATFORM=wayland codex-desktop
 ```
 
+On GNOME Wayland with more than one monitor, the default `auto` rendering
+profile detects connected displays through `/sys/class/drm` and forces the
+X11/XWayland backend. This avoids Electron resizing or rescaling the maximized
+window when pointer focus crosses to another display. To opt back in to native
+Wayland, set `CODEX_OZONE_PLATFORM=wayland` or
+`CODEX_LINUX_RENDERING_MODE=default`.
+
 For a local self-build, replace `codex-desktop` with `./codex-app/start.sh`.
 Explicit launcher flags (`--x11`, `--wayland`, `--ozone-platform=*`,
 `--force-device-scale-factor=*`) always win over these environment variables.
